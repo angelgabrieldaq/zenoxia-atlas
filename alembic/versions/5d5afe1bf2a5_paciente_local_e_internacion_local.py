@@ -60,3 +60,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_paciente_local_dni'), table_name='paciente_local')
     op.drop_table('paciente_local')
     # ### end Alembic commands ###
+    # FIX: drop de los tipos enum (autogenerate los crea pero no los dropea).
+    # checkfirst=True para tolerar downgrades parciales (no falla si ya no existe).
+    sa.Enum(name='tipo_comodidad').drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name='categoria_internacion').drop(op.get_bind(), checkfirst=True)
