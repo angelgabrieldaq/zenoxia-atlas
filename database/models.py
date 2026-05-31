@@ -6,7 +6,12 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-from database.enums import CategoriaInternacion, TipoComodidad
+from database.enums import (
+    CategoriaInternacion,
+    EstadoCamaGestion,
+    TipoCama,
+    TipoComodidad,
+)
 
 
 class Base(AsyncAttrs, DeclarativeBase):
@@ -78,4 +83,48 @@ class InternacionLocal(Base):
 
     paciente_local: Mapped["PacienteLocal"] = relationship(
         back_populates="internaciones"
+    )
+
+
+class CamaGestion(Base):
+    """Cama física desde la perspectiva de gestión de Atlas. Lleva la máquina de
+    estados propia (incluye RESERVADA, que el core no tiene). Si existe el
+    LocationResource del core, se enlaza vía core_location_id."""
+
+    __tablename__ = "cama_gestion"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    nombre: Mapped[str] = mapped_column(String(100), nullable=False)
+    tipo: Mapped[TipoCama] = mapped_column(
+        Enum(TipoCama, name="tipo_cama"), nullable=False, index=True
+    )
+    comodidad: Mapped[TipoComodidad | None] = mapped_column(
+        Enum(TipoComodidad, name="tipo_comodidad"), nullable=True
+    )
+    sector: Mapped[str] = mapped_column(String(50), nullable=False)
+    estado_gestion: Mapped[EstadoCamaGestion] = mapped_column(
+        Enum(EstadoCamaGestion, name="estado_cama_gestion"),
+        nullable=False,
+        default=EstadoCamaGestion.DISPONIBLE,
+        index=True,
+    )
+    internacion_actual_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("internacion_local.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    motivo_bloqueo: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    core_location_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    actualizado_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+    creado_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
