@@ -9,6 +9,7 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -25,7 +26,7 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('nombre', sa.String(length=100), nullable=False),
     sa.Column('tipo', sa.Enum('CAMA_INTERNACION', 'UTI', 'UCO', name='tipo_cama'), nullable=False),
-    sa.Column('comodidad', sa.Enum('SIN_PREFERENCIA', 'COMPARTIDA', 'INDIVIDUAL', 'SUITE', name='tipo_comodidad'), nullable=True),
+    sa.Column('comodidad', postgresql.ENUM('SIN_PREFERENCIA', 'COMPARTIDA', 'INDIVIDUAL', 'SUITE', name='tipo_comodidad', create_type=False), nullable=True),
     sa.Column('sector', sa.String(length=50), nullable=False),
     sa.Column('estado_gestion', sa.Enum('DISPONIBLE', 'RESERVADA', 'OCUPADA', 'PROCESO_DE_ALTA', 'LIMPIEZA_TERMINAL', 'BLOQUEADA', name='estado_cama_gestion'), nullable=False),
     sa.Column('internacion_actual_id', sa.UUID(), nullable=True),
@@ -48,3 +49,7 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_cama_gestion_estado_gestion'), table_name='cama_gestion')
     op.drop_table('cama_gestion')
     # ### end Alembic commands ###
+    # FIX: drop SOLO los enums nuevos de esta migración.
+    # tipo_comodidad NO se dropea: lo sigue usando internacion_local.
+    sa.Enum(name='estado_cama_gestion').drop(op.get_bind(), checkfirst=True)
+    sa.Enum(name='tipo_cama').drop(op.get_bind(), checkfirst=True)
