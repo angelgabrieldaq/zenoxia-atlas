@@ -32,7 +32,54 @@ y hoy se pierde.**
 
 ---
 
-# 2. Las tres capas
+# 2. Principio de arquitectura: Atlas funciona sin HIS
+
+Atlas es un producto para vender a **distintas instituciones**, no para un solo
+sanatorio. Cada institución tiene un HIS (sistema de información hospitalaria)
+distinto: cerrado, propio, viejo, o inexistente. De esto se deriva una regla dura:
+
+> **Atlas no puede depender de ningún HIS para funcionar.**
+> Si Atlas necesitara integrarse a un HIS para ser útil, no sería vendible: cada
+> venta moriría en una integración distinta contra un sistema cerrado.
+
+## Consecuencias de diseño
+- **El dato de "alta programada / candidato a mover" se captura EN Atlas**, en su
+  propia interfaz, como *intención operativa*. No requiere fuente externa. El médico
+  o el coordinador lo marca en Atlas, y con eso la capa 2 (proyección) ya funciona.
+- **Donde exista un HIS integrable, un conector OPCIONAL** puede pre-cargar o
+  sincronizar ese dato hacia Atlas. Es un *plus*, nunca un requisito. Atlas funciona
+  igual sin él.
+- La fuente de verdad clínica del **acto de alta** (el paciente egresó) sigue siendo
+  del HIS donde lo haya. Atlas no lo reemplaza ni lo dispara.
+
+## Distinción crítica: intención vs. acto
+Marcar "este paciente se va mañana" (intención operativa, planificación) NO es lo
+mismo que dar el alta clínica (acto médico con consecuencias en la HCE). Confundirlos
+es peligroso en la operación real. Por lo tanto:
+
+> **La proyección de Atlas ("se planea que se vaya") NUNCA debe poder disparar el
+> acto clínico ("se fue").** Son dos hechos distintos, en dos sistemas distintos, y
+> el diseño debe mantenerlos separados de forma estricta.
+
+Esto encaja con el principio de oro: Atlas registra la *intención operativa* (que es
+suya, del dominio de gestión de camas); el *acto clínico* es del dominio clínico /
+del HIS. Atlas nunca origina ni ejecuta el acto clínico.
+
+## Atlas vs. soluciones existentes (ej. Haily)
+Existen soluciones de gestión de camas que registran estados (limpieza,
+mantenimiento, ocupación) y muestran algunos insights. Son **estáticas**: sirven
+para *mirar* el censo, no para *organizar* el día. La diferencia de Atlas es la
+capa 2 (proyección): convierte el censo en organización. "Esta cama se libera hoy a
+las 14h (alta programada), con eso resolvés la cirugía de las 16h sin enroque" —
+eso es organizar, no mirar.
+
+**Regla de producto:** no sumar cosas sin necesidad. Cada feature se gana su lugar
+resolviendo el problema real (organizar la ocupación) o no entra. Atlas es pocas
+cosas bien hechas, no un tablero lleno de extras.
+
+---
+
+# 3. Las tres capas
 
 El módulo es una sola cosa que registra bien y muestra el mismo dato con tres
 lentes. Las tres se construyen sobre el mismo registro de eventos.
@@ -72,7 +119,7 @@ sanatorio en el tiempo. Las fórmulas son lógica de Atlas; el dato crudo es del
 
 ---
 
-# 3. Qué consume del core y qué es propio de Atlas
+# 4. Qué consume del core y qué es propio de Atlas
 
 Aplicación directa del principio de oro.
 
@@ -104,7 +151,7 @@ módulo. Atlas siempre la consume, nunca la origina.
 
 ---
 
-# 4. Estados de la cama — reconciliación con el core
+# 5. Estados de la cama — reconciliación con el core
 
 El core tiene `EstadoCacheRecurso`: LIBRE / OCUPADO / LIMPIEZA / FUERA_DE_SERVICIO.
 El sanatorio necesita cinco estados de gestión. NO son lo mismo: el del core es
@@ -131,7 +178,7 @@ elegible para otra asignación.
 
 ---
 
-# 5. El enroque — modelado
+# 6. El enroque — modelado
 
 El enroque es una **cadena de traslados** que abre una cama donde hace falta
 moviendo pacientes en cascada (bajar C a piso libera intermedia para B, cuya cama
@@ -158,16 +205,16 @@ A detallar en el diseño técnico tras aprobar este documento.
 
 ---
 
-# 6. Decisiones abiertas (a resolver antes de codear)
+# 7. Decisiones abiertas (a resolver antes de codear)
 
 1. **Estado de Atlas: ¿tabla propia o extensión de LocationResource?**
    Recomendación: tabla propia del módulo (`CamaGestion` o similar) con FK al
    LocationResource del core, que sincroniza `estado_cache`. Mantiene el core limpio.
 
 2. **El dato de proyección clínica (candidato a alta/mover): ¿dónde vive?**
-   Es la decisión más delicada (toca el principio de oro). ¿Campo/hito genérico en
-   el Episodio del core, legible por cualquier módulo? ¿O en el dominio clínico?
-   El médico debe poder marcarlo en su flujo normal, si no, nadie lo carga.
+   → **RESUELTA** (ver sección 2). Se captura EN Atlas como *intención operativa*,
+   independiente de cualquier HIS. Donde haya un HIS integrable, un conector opcional
+   puede sincronizarlo. La proyección nunca dispara el acto clínico de alta.
 
 3. **Roles nuevos del ecosistema.** Atlas introduce Admisión/gestión de camas,
    Hotelería, Coordinación de Enfermería, Central de Traslados. ¿Se definen como
@@ -183,7 +230,7 @@ A detallar en el diseño técnico tras aprobar este documento.
 
 ---
 
-# 7. Orden de construcción (capas)
+# 8. Orden de construcción (capas)
 
 - **Capa 1** primero: estados de cama, reserva, validación quirúrgica cruzada,
   pases UCI↔IG, enroque básico. El módulo usable cada día.
