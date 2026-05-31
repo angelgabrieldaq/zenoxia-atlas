@@ -39,6 +39,29 @@ Python / FastAPI / SQLAlchemy 2.0 async / PostgreSQL (igual que el core).
 
 Antes de codear, leer `docs/DISENO_MODULO_ATLAS.md` y `CLAUDE.md`.
 
+## Desarrollo local
+
+Atlas tiene base propia (modelo federado: autónoma, no comparte DB con el core).
+
+```bash
+# 1. Levantar Postgres
+docker compose up -d
+
+# 2. Configurar entorno
+cp .env.example .env
+
+# 3. Instalar dependencias
+pip install -r requirements.txt
+
+# 4. Aplicar migraciones
+alembic upgrade head
+```
+
+Para generar una migración nueva tras tocar modelos:
+```bash
+alembic revision --autogenerate -m "descripción del cambio"
+```
+
 ## Estado
 
 Fase 2 — scaffold inicial. La capa 1 se construye en sesiones siguientes.
