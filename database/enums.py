@@ -24,7 +24,7 @@ class EstadoCamaGestion(str, enum.Enum):
 
 
 class TipoComodidad(str, enum.Enum):
-    """Categoría de comodidad de la cama (preferencia del paciente / cobertura)."""
+    """Nivel de habitación que la cobertura habilita; restricción INTERNA de asignación del hospital, no preferencia del paciente."""
 
     SIN_PREFERENCIA = "SIN_PREFERENCIA"
     COMPARTIDA = "COMPARTIDA"
