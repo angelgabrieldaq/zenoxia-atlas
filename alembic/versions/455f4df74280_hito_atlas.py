@@ -1,8 +1,8 @@
 """hito atlas
 
-Revision ID: c84bc2db88b8
+Revision ID: 455f4df74280
 Revises: 648de3eb0f2b
-Create Date: 2026-06-01 02:36:43.094133
+Create Date: 2026-06-01 02:46:19.708668
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision: str = 'c84bc2db88b8'
+revision: str = '455f4df74280'
 down_revision: Union[str, Sequence[str], None] = '648de3eb0f2b'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -28,11 +28,11 @@ def upgrade() -> None:
     sa.Column('hito_codigo', sa.String(length=100), nullable=False),
     sa.Column('actor_rol', sa.String(length=40), nullable=True),
     sa.Column('actor_nombre', sa.String(length=100), nullable=True),
-    sa.Column('metadata_evento', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+    sa.Column('metadata_evento', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
     sa.Column('registrado_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('sincronizado_core', sa.Boolean(), nullable=False),
-    sa.ForeignKeyConstraint(['cama_gestion_id'], ['cama_gestion.id'], ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['internacion_id'], ['internacion_local.id'], ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['cama_gestion_id'], ['cama_gestion.id'], ondelete='RESTRICT'),
+    sa.ForeignKeyConstraint(['internacion_id'], ['internacion_local.id'], ondelete='RESTRICT'),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_index(op.f('ix_hito_atlas_cama_gestion_id'), 'hito_atlas', ['cama_gestion_id'], unique=False)

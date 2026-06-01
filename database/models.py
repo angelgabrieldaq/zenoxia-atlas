@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, func
-from sqlalchemy.dialects.postgresql import JSON, UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -134,7 +134,12 @@ class HitoAtlas(Base):
     """Registro de auditoría append-only de eventos de gestión de cama.
     actor_rol y hito_codigo son String libre (no enum) para mantener independencia
     del core y permitir evolución sin migraciones de tipo.
-    metadata_evento nunca almacena dato clínico."""
+    metadata_evento nunca almacena dato clínico.
+
+    Contrato del servicio que crea hitos (B2): DEBE estampar internacion_id y
+    cama_gestion_id también dentro de metadata_evento (id redundante), para que
+    el hito sea autocontenido y viaje completo a la sincronización con el core
+    (Fase 3), independiente de la FK."""
 
     __tablename__ = "hito_atlas"
 
@@ -143,20 +148,20 @@ class HitoAtlas(Base):
     )
     internacion_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("internacion_local.id", ondelete="SET NULL"),
+        ForeignKey("internacion_local.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )
     cama_gestion_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("cama_gestion.id", ondelete="SET NULL"),
+        ForeignKey("cama_gestion.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
     )
     hito_codigo: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     actor_rol: Mapped[str | None] = mapped_column(String(40), nullable=True)
     actor_nombre: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    metadata_evento: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    metadata_evento: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     registrado_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
