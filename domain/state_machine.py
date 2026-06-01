@@ -52,7 +52,8 @@ TRANSICIONES: tuple[Transicion, ...] = (
     Transicion(
         origen=EstadoCamaGestion.DISPONIBLE,
         destino=EstadoCamaGestion.OCUPADA,
-        roles=frozenset({RolOperativo.ADMISION, RolOperativo.ENFERMERIA}),
+        roles=frozenset({RolOperativo.ADMISION}),
+        nota="ingreso directo a cama (sin reserva previa) lo gestiona Admisión",
     ),
     Transicion(
         origen=EstadoCamaGestion.RESERVADA,
@@ -72,8 +73,8 @@ TRANSICIONES: tuple[Transicion, ...] = (
     Transicion(
         origen=EstadoCamaGestion.PROCESO_DE_ALTA,
         destino=EstadoCamaGestion.LIMPIEZA_TERMINAL,
-        roles=frozenset({RolOperativo.HOTELERIA}),
-        nota="tras pasos completos de proceso de alta",
+        roles=frozenset({RolOperativo.ADMISION}),
+        nota="el alta física la da Admisión; Hotelería/Limpieza ejecutan el trabajo",
     ),
     Transicion(
         origen=EstadoCamaGestion.LIMPIEZA_TERMINAL,
@@ -105,14 +106,14 @@ TRANSICIONES: tuple[Transicion, ...] = (
         destino=EstadoCamaGestion.OCUPADA,
         roles=frozenset({RolOperativo.MEDICO}),
         es_excepcion=True,
-        nota="reversión de alta",
+        nota="reversión temprana: todavía no hubo alta física, solo médica",
     ),
     Transicion(
         origen=EstadoCamaGestion.LIMPIEZA_TERMINAL,
         destino=EstadoCamaGestion.OCUPADA,
-        roles=frozenset({RolOperativo.MEDICO}),
+        roles=frozenset({RolOperativo.ADMISION}),
         es_excepcion=True,
-        nota="reversión de alta tardía",
+        nota="reversión de alta tardía: deshacer el alta física es competencia de Admisión",
     ),
 )
 
