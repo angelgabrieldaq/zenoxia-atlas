@@ -1,0 +1,5 @@
+# Dependencias solo para correr los tests (no requeridas en runtime).
+# El runtime vive en requirements.txt; esto se instala aparte en CI / desarrollo:
+#   pip install -r requirements.txt -r requirements-dev.txt
+pytest>=8.0
+pytest-asyncio>=0.23

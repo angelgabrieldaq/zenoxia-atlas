@@ -18,7 +18,9 @@ checklist de pre-alta ni los pases (otros pasos de la capa 1a).
 from __future__ import annotations
 
 import enum
+import uuid
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.enums import EstadoCamaGestion
@@ -34,6 +36,11 @@ class RolNoAutorizado(Exception):
     """
 
 
+class ReversionSinInternacion(Exception):
+    """No se puede revertir un alta tardía: no se pasó una internación ni hay un hito de
+    alta física previo para esa cama del cual recuperar al paciente."""
+
+
 class _EfectoInternacion(enum.Enum):
     """Qué le pasa a ``cama.internacion_actual_id`` en cada transición (§10)."""
 
@@ -43,31 +50,34 @@ class _EfectoInternacion(enum.Enum):
 
 
 # Efecto sobre internacion_actual_id por (origen, destino). Cubre las 12 transiciones.
+# Refleja el flujo real validado: el alta física y el bloqueo de una cama ocupada SACAN
+# al paciente de la cama (LIBERA); la reversión tardía lo RE-ASIGNA recuperándolo del
+# hito de alta (ver ServicioTransiciones.revertir_alta_tardia).
 _EFECTO_INTERNACION: dict[
     tuple[EstadoCamaGestion, EstadoCamaGestion], _EfectoInternacion
 ] = {
-    # ASIGNA: la cama toma una internación (reserva u ocupación).
+    # ASIGNA: la cama toma una internación.
     (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.RESERVADA): _EfectoInternacion.ASIGNA,
     (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.OCUPADA): _EfectoInternacion.ASIGNA,
     (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.OCUPADA): _EfectoInternacion.ASIGNA,
+    # Reversión tardía: la cama en limpieza ya NO tiene paciente (el alta física lo
+    # desvinculó), así que revertir RE-ASIGNA al paciente recuperado del hito de alta.
+    (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.OCUPADA): _EfectoInternacion.ASIGNA,
     # LIBERA: la cama suelta su internación.
     (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.DISPONIBLE): _EfectoInternacion.LIBERA,
     (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.DISPONIBLE): _EfectoInternacion.LIBERA,
     (EstadoCamaGestion.BLOQUEADA, EstadoCamaGestion.DISPONIBLE): _EfectoInternacion.LIBERA,
+    # Alta física: saca al paciente de la cama, que queda para limpiar SIN paciente.
+    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL): _EfectoInternacion.LIBERA,
+    # Bloqueo de cama ocupada (excepción): no se hace mantenimiento con el paciente en la
+    # habitación; al bloquear se lo desvincula (la reubicación es un pase aparte).
+    (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.BLOQUEADA): _EfectoInternacion.LIBERA,
     # MANTIENE: el vínculo paciente↔cama no cambia.
     (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.PROCESO_DE_ALTA): _EfectoInternacion.MANTIENE,
-    # Alta física → limpieza: el paciente sigue vinculado a la cama hasta que ésta se
-    # libere de verdad (LIMPIEZA_TERMINAL→DISPONIBLE). Es lo que permite que la
-    # reversión tardía (LIMPIEZA_TERMINAL→OCUPADA, "no cambia") devuelva al MISMO
-    # paciente. (§10 no lo lista explícitamente; se deduce de esa restricción.)
-    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL): _EfectoInternacion.MANTIENE,
+    # DISPONIBLE no tiene internación: bloquear una cama libre la deja como está.
     (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.BLOQUEADA): _EfectoInternacion.MANTIENE,
-    # Bloqueo de cama ocupada (excepción): mismo criterio que "→BLOQUEADA queda como
-    # está"; el traslado del paciente es un pase aparte, fuera de B2.
-    (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.BLOQUEADA): _EfectoInternacion.MANTIENE,
-    # Reversiones de alta: vuelve el mismo paciente, no se toca el vínculo.
+    # Reversión temprana: todavía no hubo alta física, el paciente sigue ligado.
     (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.OCUPADA): _EfectoInternacion.MANTIENE,
-    (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.OCUPADA): _EfectoInternacion.MANTIENE,
 }
 
 
@@ -87,6 +97,12 @@ _HITO_POR_TRANSICION: dict[tuple[EstadoCamaGestion, EstadoCamaGestion], str] = {
     (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.OCUPADA): "ATLAS_ALTA_REVERTIDA",
     (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.OCUPADA): "ATLAS_ALTA_REVERTIDA",
 }
+
+# Hito que deja el alta física (PROCESO_DE_ALTA → LIMPIEZA_TERMINAL, §11). La reversión
+# tardía lo usa para recuperar al paciente cuando no se le pasa la internación.
+_HITO_ALTA_FISICA = _HITO_POR_TRANSICION[
+    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL)
+]
 
 
 class ServicioTransiciones:
@@ -363,12 +379,14 @@ class ServicioTransiciones:
         actor_nombre: str | None = None,
         metadata: dict | None = None,
     ) -> HitoAtlas:
-        """PROCESO_DE_ALTA → OCUPADA (excepción). El médico deshace su alta médica;
-        todavía no hubo alta física, así que ``limpieza_ya_ejecutada`` es siempre False."""
+        """PROCESO_DE_ALTA → OCUPADA (excepción). El médico deshace su alta médica:
+        todavía no hubo alta física y el paciente nunca se desvinculó (MANTIENE), así que
+        ``limpieza_ya_ejecutada`` es siempre False y no hay que re-asignar nada."""
         self._exigir_origen(cama, EstadoCamaGestion.PROCESO_DE_ALTA)
         return await self._revertir_alta(
             session, cama, rol, motivo_reversion,
-            limpieza_ya_ejecutada=False, actor_nombre=actor_nombre, metadata=metadata,
+            limpieza_ya_ejecutada=False, internacion=None,
+            actor_nombre=actor_nombre, metadata=metadata,
         )
 
     async def revertir_alta_tardia(
@@ -377,19 +395,71 @@ class ServicioTransiciones:
         cama: CamaGestion,
         rol: RolOperativo,
         motivo_reversion: str,
+        internacion: InternacionLocal | None = None,
         limpieza_ya_ejecutada: bool = False,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
     ) -> HitoAtlas:
-        """LIMPIEZA_TERMINAL → OCUPADA (excepción). Admisión deshace el alta física ya
-        dada; el mismo paciente vuelve. ``limpieza_ya_ejecutada`` marca si la limpieza
-        efectiva ya se había hecho (trabajo desperdiciado)."""
+        """LIMPIEZA_TERMINAL → OCUPADA (excepción). Admisión deshace un alta física ya
+        dada; el mismo paciente vuelve a la cama.
+
+        Como el alta física ya DESVINCULÓ al paciente (la cama en limpieza no tiene
+        internación), esta reversión tiene que RE-ASIGNARLO:
+
+        * si se pasa ``internacion``, se re-vincula esa;
+        * si no, se recupera del último hito de alta física de esta cama
+          (su ``metadata_evento['internacion_id']``) — ver ``_recuperar_internacion_de_alta``.
+
+        DIFERENCIADOR: esto resuelve, SIN "camas virtuales/fantasma", el problema que
+        tiene un HIS cerrado al anular un alta cuando la cama ya pasó a limpieza. Atlas
+        conserva la traza cama↔paciente en sus hitos (append-only), así que re-vincula al
+        paciente REAL en vez de fabricar un placeholder. El invariante que lo hace seguro:
+        la reversión tardía sólo es válida desde LIMPIEZA_TERMINAL, y una cama en limpieza
+        no pudo re-ocuparse, por lo que el último hito de alta física es inequívocamente
+        el del paciente que se fue.
+        """
         self._exigir_origen(cama, EstadoCamaGestion.LIMPIEZA_TERMINAL)
+        if internacion is None:
+            internacion = await self._recuperar_internacion_de_alta(session, cama)
         return await self._revertir_alta(
             session, cama, rol, motivo_reversion,
-            limpieza_ya_ejecutada=limpieza_ya_ejecutada,
+            limpieza_ya_ejecutada=limpieza_ya_ejecutada, internacion=internacion,
             actor_nombre=actor_nombre, metadata=metadata,
         )
+
+    async def _recuperar_internacion_de_alta(
+        self, session: AsyncSession, cama: CamaGestion
+    ) -> InternacionLocal:
+        """Recupera al paciente a re-vincular leyendo el hito de alta física más reciente
+        de esta cama (``ATLAS_LIMPIEZA_INICIADA``) y su ``metadata_evento['internacion_id']``.
+        Lanza ``ReversionSinInternacion`` si no hay de dónde recuperarlo."""
+        stmt = (
+            select(HitoAtlas)
+            .where(
+                HitoAtlas.cama_gestion_id == cama.id,
+                HitoAtlas.hito_codigo == _HITO_ALTA_FISICA,
+            )
+            .order_by(HitoAtlas.registrado_at.desc())
+            .limit(1)
+        )
+        hito = (await session.execute(stmt)).scalars().first()
+        internacion_id = (
+            hito.metadata_evento.get("internacion_id")
+            if hito is not None and hito.metadata_evento
+            else None
+        )
+        if internacion_id is None:
+            raise ReversionSinInternacion(
+                "No se puede revertir: sin internación provista ni hito de alta previo "
+                "para esta cama."
+            )
+        internacion = await session.get(InternacionLocal, uuid.UUID(str(internacion_id)))
+        if internacion is None:
+            raise ReversionSinInternacion(
+                "No se puede revertir: el hito de alta referencia una internación "
+                "inexistente."
+            )
+        return internacion
 
     async def _revertir_alta(
         self,
@@ -398,11 +468,13 @@ class ServicioTransiciones:
         rol: RolOperativo,
         motivo_reversion: str,
         limpieza_ya_ejecutada: bool,
+        internacion: InternacionLocal | None,
         actor_nombre: str | None,
         metadata: dict | None,
     ) -> HitoAtlas:
         """Lógica común de las dos reversiones (→ OCUPADA, hito ATLAS_ALTA_REVERTIDA).
-        ``motivo_reversion`` es obligatorio (§11)."""
+        ``motivo_reversion`` es obligatorio (§11). ``internacion`` se re-asigna sólo en la
+        reversión tardía; en la temprana es None y la transición MANTIENE el vínculo."""
         if not (motivo_reversion and motivo_reversion.strip()):
             raise ValueError(
                 "La reversión de alta requiere 'motivo_reversion' (obligatorio, §11)."
@@ -414,5 +486,5 @@ class ServicioTransiciones:
         }
         return await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.OCUPADA, rol,
-            actor_nombre=actor_nombre, metadata=meta,
+            actor_nombre=actor_nombre, internacion=internacion, metadata=meta,
         )

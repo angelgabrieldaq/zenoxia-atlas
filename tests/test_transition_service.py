@@ -27,7 +27,11 @@ from database.enums import (
 )
 from database.models import CamaGestion, HitoAtlas, InternacionLocal, PacienteLocal
 from domain.state_machine import RolOperativo, TransicionInvalida
-from domain.transition_service import RolNoAutorizado, ServicioTransiciones
+from domain.transition_service import (
+    ReversionSinInternacion,
+    RolNoAutorizado,
+    ServicioTransiciones,
+)
 
 load_dotenv()
 DATABASE_URL = os.getenv(
@@ -184,10 +188,10 @@ async def test_rol_no_autorizado_lanza_y_no_deja_efectos(session, servicio):
 
 
 # --------------------------------------------------------------------------- #
-# 4. ocupar setea internacion_actual_id; iniciar_alta lo mantiene; (alta física
-#    también lo mantiene); finalizar_limpieza lo pone en None.
+# 4. ocupar setea internacion_actual_id; iniciar_alta lo mantiene; el ALTA FÍSICA
+#    libera (None); finalizar_limpieza sigue en None.
 # --------------------------------------------------------------------------- #
-async def test_ocupar_setea_iniciar_alta_mantiene_finalizar_limpieza_libera(
+async def test_ocupar_setea_iniciar_alta_mantiene_alta_fisica_libera(
     session, servicio
 ):
     internacion = await _crear_internacion(session)
@@ -199,19 +203,19 @@ async def test_ocupar_setea_iniciar_alta_mantiene_finalizar_limpieza_libera(
     assert cama.estado_gestion == EstadoCamaGestion.OCUPADA
     assert cama.internacion_actual_id == internacion.id
 
-    # iniciar_alta: mantiene
+    # iniciar_alta: mantiene (el paciente sigue mientras corre la cadena de pre-alta)
     await servicio.iniciar_alta(session, cama, RolOperativo.MEDICO)
     await session.refresh(cama)
     assert cama.estado_gestion == EstadoCamaGestion.PROCESO_DE_ALTA
     assert cama.internacion_actual_id == internacion.id
 
-    # dar_alta_fisica: mantiene (el paciente sigue vinculado hasta liberar la cama)
+    # dar_alta_fisica: LIBERA (el alta física saca al paciente; la cama queda sin él)
     await servicio.dar_alta_fisica(session, cama, RolOperativo.ADMISION)
     await session.refresh(cama)
     assert cama.estado_gestion == EstadoCamaGestion.LIMPIEZA_TERMINAL
-    assert cama.internacion_actual_id == internacion.id
+    assert cama.internacion_actual_id is None
 
-    # finalizar_limpieza: libera (None)
+    # finalizar_limpieza: sigue sin paciente
     await servicio.finalizar_limpieza(session, cama, RolOperativo.LIMPIEZA)
     await session.refresh(cama)
     assert cama.estado_gestion == EstadoCamaGestion.DISPONIBLE
@@ -267,37 +271,107 @@ async def test_atomicidad_rollback_total_si_falla_la_persistencia(session, servi
 
 
 # --------------------------------------------------------------------------- #
-# 7. Reversión tardía (LIMPIEZA_TERMINAL → OCUPADA): mantiene al MISMO paciente
-#    y audita ATLAS_ALTA_REVERTIDA con su metadata obligatoria.
+# 7. OCUPADA → BLOQUEADA ahora LIBERA: bloquear una cama ocupada desvincula al
+#    paciente (queda None); el hito conserva la traza de a quién se desplazó.
 # --------------------------------------------------------------------------- #
-async def test_revertir_alta_tardia_mantiene_internacion_y_audita(session, servicio):
+async def test_bloquear_cama_ocupada_libera_internacion(session, servicio):
     internacion = await _crear_internacion(session)
-    # cama con alta física ya dada: en LIMPIEZA_TERMINAL pero el paciente sigue ligado
     cama = await _crear_cama(
         session,
-        estado=EstadoCamaGestion.LIMPIEZA_TERMINAL,
+        estado=EstadoCamaGestion.OCUPADA,
         internacion_id=internacion.id,
     )
+
+    hito = await servicio.bloquear(
+        session, cama, RolOperativo.MANTENIMIENTO, motivo="caño roto"
+    )
+
+    await session.refresh(cama)
+    assert cama.estado_gestion == EstadoCamaGestion.BLOQUEADA
+    assert cama.internacion_actual_id is None                       # LIBERA
+    assert cama.motivo_bloqueo == "caño roto"
+    assert hito.hito_codigo == "ATLAS_CAMA_BLOQUEADA"
+    # el hito guarda al paciente desplazado (columna + metadata)
+    assert hito.internacion_id == internacion.id
+    assert hito.metadata_evento["internacion_id"] == str(internacion.id)
+
+
+# --------------------------------------------------------------------------- #
+# 8. Reversión tardía CON internación: re-vincula la internación pasada.
+# --------------------------------------------------------------------------- #
+async def test_revertir_alta_tardia_con_internacion_revincula(session, servicio):
+    internacion = await _crear_internacion(session)
+    # cama en limpieza SIN paciente (estado consistente tras el alta física)
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.LIMPIEZA_TERMINAL)
+    assert cama.internacion_actual_id is None
 
     hito = await servicio.revertir_alta_tardia(
         session,
         cama,
         RolOperativo.ADMISION,
-        motivo_reversion="el paciente nunca egresó físicamente",
+        motivo_reversion="el paciente nunca egresó",
+        internacion=internacion,
         limpieza_ya_ejecutada=True,
     )
 
     await session.refresh(cama)
     assert cama.estado_gestion == EstadoCamaGestion.OCUPADA
-    assert cama.internacion_actual_id == internacion.id  # MANTIENE
+    assert cama.internacion_actual_id == internacion.id             # RE-ASIGNA
     assert hito.hito_codigo == "ATLAS_ALTA_REVERTIDA"
-    assert hito.metadata_evento["motivo_reversion"] == "el paciente nunca egresó físicamente"
+    assert hito.metadata_evento["motivo_reversion"] == "el paciente nunca egresó"
     assert hito.metadata_evento["limpieza_ya_ejecutada"] is True
     assert hito.metadata_evento["internacion_id"] == str(internacion.id)
 
 
 # --------------------------------------------------------------------------- #
-# 8. La reversión exige motivo_reversion (obligatorio, §11) y no deja efectos.
+# 9. Flujo completo: ocupar → iniciar_alta → dar_alta_fisica (libera) →
+#    revertir_alta_tardia() SIN parámetro recupera al paciente del hito de alta y
+#    re-vincula. La cama vuelve a OCUPADA con la internación ORIGINAL.
+# --------------------------------------------------------------------------- #
+async def test_flujo_completo_reversion_tardia_recupera_del_hito(session, servicio):
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.DISPONIBLE)
+
+    await servicio.ocupar(session, cama, internacion, RolOperativo.ADMISION)
+    await servicio.iniciar_alta(session, cama, RolOperativo.MEDICO)
+    await servicio.dar_alta_fisica(session, cama, RolOperativo.ADMISION)
+    await session.refresh(cama)
+    assert cama.estado_gestion == EstadoCamaGestion.LIMPIEZA_TERMINAL
+    assert cama.internacion_actual_id is None  # el alta física lo desvinculó
+
+    # revertir SIN pasar internación → se recupera del hito de alta física
+    hito = await servicio.revertir_alta_tardia(
+        session, cama, RolOperativo.ADMISION, motivo_reversion="volvió el paciente"
+    )
+
+    await session.refresh(cama)
+    assert cama.estado_gestion == EstadoCamaGestion.OCUPADA
+    assert cama.internacion_actual_id == internacion.id  # MISMO paciente, recuperado
+    assert hito.hito_codigo == "ATLAS_ALTA_REVERTIDA"
+    assert hito.metadata_evento["internacion_id"] == str(internacion.id)
+    assert hito.metadata_evento["limpieza_ya_ejecutada"] is False
+
+
+# --------------------------------------------------------------------------- #
+# 10. Reversión tardía SIN internación y SIN hito de alta previo: error claro.
+# --------------------------------------------------------------------------- #
+async def test_revertir_alta_tardia_sin_internacion_ni_hito_lanza(session, servicio):
+    # cama en limpieza pero sin ningún hito de alta del cual recuperar al paciente
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.LIMPIEZA_TERMINAL)
+
+    with pytest.raises(ReversionSinInternacion):
+        await servicio.revertir_alta_tardia(
+            session, cama, RolOperativo.ADMISION, motivo_reversion="sin paciente"
+        )
+
+    await session.refresh(cama)
+    assert cama.estado_gestion == EstadoCamaGestion.LIMPIEZA_TERMINAL
+    assert cama.internacion_actual_id is None
+    assert await _contar_hitos(session) == 0
+
+
+# --------------------------------------------------------------------------- #
+# 11. La reversión exige motivo_reversion (obligatorio, §11) y no deja efectos.
 # --------------------------------------------------------------------------- #
 async def test_reversion_sin_motivo_lanza_value_error(session, servicio):
     cama = await _crear_cama(session, estado=EstadoCamaGestion.PROCESO_DE_ALTA)
