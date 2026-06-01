@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, String, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, func
+from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -127,4 +127,39 @@ class CamaGestion(Base):
     )
     creado_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class HitoAtlas(Base):
+    """Registro de auditoría append-only de eventos de gestión de cama.
+    actor_rol y hito_codigo son String libre (no enum) para mantener independencia
+    del core y permitir evolución sin migraciones de tipo.
+    metadata_evento nunca almacena dato clínico."""
+
+    __tablename__ = "hito_atlas"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    internacion_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("internacion_local.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    cama_gestion_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("cama_gestion.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    hito_codigo: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    actor_rol: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    actor_nombre: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    metadata_evento: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    registrado_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    sincronizado_core: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
     )
