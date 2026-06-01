@@ -111,7 +111,9 @@ def test_no_existe_transicion_a_si_mismo():
 
 ROLES_ESPERADOS = {
     (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.RESERVADA): {RolOperativo.ADMISION},
-    (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.OCUPADA): {RolOperativo.ADMISION, RolOperativo.ENFERMERIA},
+    # Ingreso directo (sin reserva previa): lo dispara Admisión. Enfermería confirma
+    # el arribo solo en el flujo con reserva (RESERVADA → OCUPADA).
+    (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.OCUPADA): {RolOperativo.ADMISION},
     (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.OCUPADA): {RolOperativo.ENFERMERIA},
     (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.DISPONIBLE): {RolOperativo.ADMISION},
     (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.PROCESO_DE_ALTA): {RolOperativo.MEDICO},

@@ -52,7 +52,8 @@ TRANSICIONES: tuple[Transicion, ...] = (
     Transicion(
         origen=EstadoCamaGestion.DISPONIBLE,
         destino=EstadoCamaGestion.OCUPADA,
-        roles=frozenset({RolOperativo.ADMISION, RolOperativo.ENFERMERIA}),
+        roles=frozenset({RolOperativo.ADMISION}),
+        nota="ingreso directo a cama (sin reserva previa) lo gestiona Admisión",
     ),
     Transicion(
         origen=EstadoCamaGestion.RESERVADA,
