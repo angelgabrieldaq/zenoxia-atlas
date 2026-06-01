@@ -103,3 +103,42 @@ def test_cada_transicion_tiene_al_menos_un_rol():
 def test_no_existe_transicion_a_si_mismo():
     for t in TRANSICIONES:
         assert t.origen != t.destino
+
+
+# --- Asignación de rol disparador por transición ---
+# Cada transición tiene UN rol disparador (la coordinación operativa con otros roles
+# vive afuera de la máquina de estados).
+
+ROLES_ESPERADOS = {
+    (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.RESERVADA): {RolOperativo.ADMISION},
+    (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.OCUPADA): {RolOperativo.ADMISION, RolOperativo.ENFERMERIA},
+    (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.OCUPADA): {RolOperativo.ENFERMERIA},
+    (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.DISPONIBLE): {RolOperativo.ADMISION},
+    (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.PROCESO_DE_ALTA): {RolOperativo.MEDICO},
+    # Alta física → limpieza: la dispara Admisión, no Hotelería
+    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL): {RolOperativo.ADMISION},
+    (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.DISPONIBLE): {RolOperativo.LIMPIEZA},
+    (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.BLOQUEADA): {RolOperativo.MANTENIMIENTO},
+    (EstadoCamaGestion.BLOQUEADA, EstadoCamaGestion.DISPONIBLE): {RolOperativo.MANTENIMIENTO},
+    (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.BLOQUEADA): {RolOperativo.MANTENIMIENTO},
+    # Reversión temprana: el médico deshace su propia decisión clínica
+    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.OCUPADA): {RolOperativo.MEDICO},
+    # Reversión tardía: deshacer el alta física es Admisión, no Médico
+    (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.OCUPADA): {RolOperativo.ADMISION},
+}
+
+
+@pytest.mark.parametrize(
+    "origen,destino,roles_esperados",
+    [(o, d, r) for (o, d), r in ROLES_ESPERADOS.items()],
+)
+def test_rol_disparador_correcto(origen, destino, roles_esperados):
+    t = validar_transicion(origen, destino)
+    assert t.roles == frozenset(roles_esperados)
+
+
+def test_no_falta_ni_sobra_ninguna_asignacion_de_rol_en_los_tests():
+    # ROLES_ESPERADOS cubre exactamente las 12 transiciones de la tabla
+    pares_tabla = {(t.origen, t.destino) for t in TRANSICIONES}
+    pares_tests = set(ROLES_ESPERADOS.keys())
+    assert pares_tabla == pares_tests
