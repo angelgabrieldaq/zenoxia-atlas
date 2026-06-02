@@ -384,3 +384,54 @@ async def test_reversion_sin_motivo_lanza_value_error(session, servicio):
     await session.refresh(cama)
     assert cama.estado_gestion == EstadoCamaGestion.PROCESO_DE_ALTA
     assert await _contar_hitos(session) == 0
+
+
+# --------------------------------------------------------------------------- #
+# 12. commit=False: aplica y deja los cambios VISIBLES en la sesión (vía flush),
+#     pero NO commitea — un rollback posterior los descarta por completo.
+# --------------------------------------------------------------------------- #
+async def test_commit_false_visible_pero_rollback_descarta(session, servicio):
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.DISPONIBLE)
+    cama_id = cama.id
+
+    hito = await servicio.ejecutar_transicion(
+        session, cama, EstadoCamaGestion.OCUPADA, RolOperativo.ADMISION,
+        internacion=internacion, commit=False,
+    )
+
+    # Visible dentro de la transacción (flush): estado, vínculo y hito.
+    assert hito.hito_codigo == "ATLAS_CAMA_OCUPADA"
+    assert cama.estado_gestion == EstadoCamaGestion.OCUPADA
+    assert cama.internacion_actual_id == internacion.id
+    assert await _contar_hitos(session) == 1  # flusheado, visible en la transacción
+
+    # Pero NO commiteado: un rollback lo descarta todo.
+    await session.rollback()
+    cama_db = await session.get(CamaGestion, cama_id)
+    assert cama_db.estado_gestion == EstadoCamaGestion.DISPONIBLE
+    assert cama_db.internacion_actual_id is None
+    assert await _contar_hitos(session) == 0
+
+
+# --------------------------------------------------------------------------- #
+# 13. Orquestación: dos transiciones con commit=False encadenadas y un ÚNICO commit
+#     externo → ambas persisten atómicamente (el caso de uso del refactor).
+# --------------------------------------------------------------------------- #
+async def test_commit_false_orquesta_dos_transiciones_atomicas(session, servicio):
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.DISPONIBLE)
+    cama_id = cama.id
+
+    # El "orquestador" encadena dos transiciones sin commitear cada una; la segunda
+    # ve el estado de la primera (flusheado en la sesión).
+    await servicio.ocupar(session, cama, internacion, RolOperativo.ADMISION, commit=False)
+    await servicio.iniciar_alta(session, cama, RolOperativo.MEDICO, commit=False)
+
+    # Recién acá cierra la transacción, una sola vez.
+    await session.commit()
+
+    cama_db = await session.get(CamaGestion, cama_id)
+    assert cama_db.estado_gestion == EstadoCamaGestion.PROCESO_DE_ALTA
+    assert cama_db.internacion_actual_id == internacion.id
+    assert await _contar_hitos(session) == 2  # los dos hitos, en la misma transacción

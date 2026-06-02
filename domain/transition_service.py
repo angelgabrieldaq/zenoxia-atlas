@@ -8,7 +8,9 @@ Coordina, en UNA transacción async, el flujo completo de una transición:
 3. actualiza ``internacion_actual_id`` según la semántica de la transición;
 4. cambia ``estado_gestion``;
 5. escribe el ``HitoAtlas`` de auditoría (catálogo §11);
-6. hace commit atómico — ante cualquier error, rollback total.
+6. commitea atómicamente (o sólo ``flush`` si un orquestador controla la transacción —
+   ver el parámetro ``commit`` de ``ejecutar_transicion``); ante error, rollback total
+   cuando él mismo commitea.
 
 La máquina de estados sólo DECIDE (sin tocar la base); este servicio EJECUTA y
 persiste. La sincronización con el core es Fase 3: acá es no-op (§12). No modela el
@@ -111,6 +113,10 @@ class ServicioTransiciones:
     El método genérico ``ejecutar_transicion`` es el único que toca la base; los
     métodos semánticos (``reservar``, ``ocupar``, ...) son envoltorios finos que sólo
     fijan el estado destino y los extras propios de cada operación.
+
+    Todos aceptan ``commit`` (default True). Con ``commit=False`` aplican los cambios y
+    sólo hacen ``flush`` (sin commit ni rollback), para que un orquestador pueda envolver
+    VARIAS transiciones en una única transacción atómica (ej. el futuro PaseServicio).
     """
 
     async def ejecutar_transicion(
@@ -122,13 +128,21 @@ class ServicioTransiciones:
         actor_nombre: str | None = None,
         internacion: InternacionLocal | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
-        """Ejecuta ``cama`` : ``origen`` → ``estado_destino`` en una sola transacción.
+        """Ejecuta ``cama`` : ``origen`` → ``estado_destino``.
 
         Devuelve el ``HitoAtlas`` creado. Lanza ``TransicionInvalida`` (transición no
         contemplada en §10), ``RolNoAutorizado`` (rol sin permiso) o ``ValueError``
-        (falta la internación en una transición que asigna) ANTES de tocar la base.
-        Si algo falla durante la persistencia, hace rollback completo y re-propaga.
+        (falta la internación en una transición que asigna) ANTES de tocar la base,
+        independientemente de ``commit``.
+
+        ``commit`` (default True) preserva el comportamiento de siempre: una transacción
+        atómica autónoma — al final ``session.commit()`` y, ante cualquier error de
+        persistencia, ``rollback`` y re-propaga. Con ``commit=False`` aplica los cambios
+        y hace sólo ``session.flush()`` (quedan visibles en la sesión sin cerrar la
+        transacción) y NO hace commit ni rollback: deja ambas decisiones al orquestador
+        que envuelve varias transiciones en una sola transacción.
         """
         origen = cama.estado_gestion
 
@@ -158,7 +172,8 @@ class ServicioTransiciones:
                     "antes de vincularla a la cama."
                 )
 
-        # 3-6. A partir de acá, todo en una sola transacción atómica.
+        # 3-6. Escrituras. Con commit=True es una transacción atómica autónoma; con
+        # commit=False el orquestador controla el commit/rollback de la transacción.
         try:
             internacion_previa_id = cama.internacion_actual_id
 
@@ -198,17 +213,22 @@ class ServicioTransiciones:
             )
             session.add(hito)
 
-            # 6. Commit atómico.
-            await session.commit()
+            # 6. Finalizar: commit propio (default) o sólo flush si orquesta otro.
+            if commit:
+                await session.commit()
+            else:
+                await session.flush()
             return hito
         except Exception:
-            await session.rollback()
+            if commit:
+                await session.rollback()
             raise
 
     # ------------------------------------------------------------------ #
     # Métodos semánticos. Envoltorios finos sobre ejecutar_transicion: no
     # duplican la lógica transaccional, sólo fijan destino/extras y exigen el
     # origen correcto (un mismo destino puede mapear a hitos distintos).
+    # Propagan ``commit`` para que un orquestador pueda encadenarlos.
     # ------------------------------------------------------------------ #
 
     @staticmethod
@@ -228,12 +248,14 @@ class ServicioTransiciones:
         rol: RolOperativo,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """DISPONIBLE → RESERVADA. Aparta la cama para una internación que aún no llegó."""
         self._exigir_origen(cama, EstadoCamaGestion.DISPONIBLE)
         return await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.RESERVADA, rol,
             actor_nombre=actor_nombre, internacion=internacion, metadata=metadata,
+            commit=commit,
         )
 
     async def ocupar(
@@ -244,6 +266,7 @@ class ServicioTransiciones:
         rol: RolOperativo,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """(DISPONIBLE | RESERVADA) → OCUPADA. Ingreso físico del paciente."""
         self._exigir_origen(
@@ -252,6 +275,7 @@ class ServicioTransiciones:
         return await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.OCUPADA, rol,
             actor_nombre=actor_nombre, internacion=internacion, metadata=metadata,
+            commit=commit,
         )
 
     async def cancelar_reserva(
@@ -261,12 +285,13 @@ class ServicioTransiciones:
         rol: RolOperativo,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """RESERVADA → DISPONIBLE. Reserva cancelada o vencida; libera la cama."""
         self._exigir_origen(cama, EstadoCamaGestion.RESERVADA)
         return await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.DISPONIBLE, rol,
-            actor_nombre=actor_nombre, metadata=metadata,
+            actor_nombre=actor_nombre, metadata=metadata, commit=commit,
         )
 
     async def iniciar_alta(
@@ -276,12 +301,13 @@ class ServicioTransiciones:
         rol: RolOperativo,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """OCUPADA → PROCESO_DE_ALTA. El médico carga el alta médica (arranca la cadena)."""
         self._exigir_origen(cama, EstadoCamaGestion.OCUPADA)
         return await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.PROCESO_DE_ALTA, rol,
-            actor_nombre=actor_nombre, metadata=metadata,
+            actor_nombre=actor_nombre, metadata=metadata, commit=commit,
         )
 
     async def dar_alta_fisica(
@@ -291,6 +317,7 @@ class ServicioTransiciones:
         rol: RolOperativo,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """PROCESO_DE_ALTA → LIMPIEZA_TERMINAL. Admisión confirma el egreso físico.
 
@@ -300,7 +327,7 @@ class ServicioTransiciones:
         self._exigir_origen(cama, EstadoCamaGestion.PROCESO_DE_ALTA)
         return await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.LIMPIEZA_TERMINAL, rol,
-            actor_nombre=actor_nombre, metadata=metadata,
+            actor_nombre=actor_nombre, metadata=metadata, commit=commit,
         )
 
     async def finalizar_limpieza(
@@ -310,12 +337,13 @@ class ServicioTransiciones:
         rol: RolOperativo,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """LIMPIEZA_TERMINAL → DISPONIBLE. Limpieza aprobada; la cama vuelve al pool."""
         self._exigir_origen(cama, EstadoCamaGestion.LIMPIEZA_TERMINAL)
         return await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.DISPONIBLE, rol,
-            actor_nombre=actor_nombre, metadata=metadata,
+            actor_nombre=actor_nombre, metadata=metadata, commit=commit,
         )
 
     async def bloquear(
@@ -326,11 +354,12 @@ class ServicioTransiciones:
         motivo: str,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """(DISPONIBLE | OCUPADA) → BLOQUEADA. Mantenimiento; el motivo es obligatorio (§10).
 
         ``motivo_bloqueo`` se setea en la misma transacción (lo persiste el commit del
-        método genérico) y queda registrado en el hito.
+        método genérico o del orquestador) y queda registrado en el hito.
         """
         if not (motivo and motivo.strip()):
             raise ValueError("El bloqueo de una cama requiere un motivo obligatorio (§10).")
@@ -344,6 +373,7 @@ class ServicioTransiciones:
                 session, cama, EstadoCamaGestion.BLOQUEADA, rol,
                 actor_nombre=actor_nombre,
                 metadata={"motivo_bloqueo": motivo, **(metadata or {})},
+                commit=commit,
             )
         except Exception:
             cama.motivo_bloqueo = motivo_previo  # revertir la mutación en memoria
@@ -356,6 +386,7 @@ class ServicioTransiciones:
         rol: RolOperativo,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """BLOQUEADA → DISPONIBLE. Mantenimiento finalizado + validación de Operaciones."""
         self._exigir_origen(cama, EstadoCamaGestion.BLOQUEADA)
@@ -364,7 +395,7 @@ class ServicioTransiciones:
         try:
             return await self.ejecutar_transicion(
                 session, cama, EstadoCamaGestion.DISPONIBLE, rol,
-                actor_nombre=actor_nombre, metadata=metadata,
+                actor_nombre=actor_nombre, metadata=metadata, commit=commit,
             )
         except Exception:
             cama.motivo_bloqueo = motivo_previo
@@ -378,6 +409,7 @@ class ServicioTransiciones:
         motivo_reversion: str,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """PROCESO_DE_ALTA → OCUPADA (excepción). El médico deshace su alta médica:
         todavía no hubo alta física y el paciente nunca se desvinculó (MANTIENE), así que
@@ -386,7 +418,7 @@ class ServicioTransiciones:
         return await self._revertir_alta(
             session, cama, rol, motivo_reversion,
             limpieza_ya_ejecutada=False, internacion=None,
-            actor_nombre=actor_nombre, metadata=metadata,
+            actor_nombre=actor_nombre, metadata=metadata, commit=commit,
         )
 
     async def revertir_alta_tardia(
@@ -399,6 +431,7 @@ class ServicioTransiciones:
         limpieza_ya_ejecutada: bool = False,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """LIMPIEZA_TERMINAL → OCUPADA (excepción). Admisión deshace un alta física ya
         dada; el mismo paciente vuelve a la cama.
@@ -424,7 +457,7 @@ class ServicioTransiciones:
         return await self._revertir_alta(
             session, cama, rol, motivo_reversion,
             limpieza_ya_ejecutada=limpieza_ya_ejecutada, internacion=internacion,
-            actor_nombre=actor_nombre, metadata=metadata,
+            actor_nombre=actor_nombre, metadata=metadata, commit=commit,
         )
 
     async def _recuperar_internacion_de_alta(
@@ -471,6 +504,7 @@ class ServicioTransiciones:
         internacion: InternacionLocal | None,
         actor_nombre: str | None,
         metadata: dict | None,
+        commit: bool = True,
     ) -> HitoAtlas:
         """Lógica común de las dos reversiones (→ OCUPADA, hito ATLAS_ALTA_REVERTIDA).
         ``motivo_reversion`` es obligatorio (§11). ``internacion`` se re-asigna sólo en la
@@ -487,4 +521,5 @@ class ServicioTransiciones:
         return await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.OCUPADA, rol,
             actor_nombre=actor_nombre, internacion=internacion, metadata=meta,
+            commit=commit,
         )
