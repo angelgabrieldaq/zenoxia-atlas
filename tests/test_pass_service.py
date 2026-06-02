@@ -223,6 +223,9 @@ async def test_confirmar_pase_ocupa_destino_y_libera_origen(session, servicio):
     assert destino.internacion_actual_id == internacion.id
     # origen: al camino de limpieza (NO disponible directo)
     assert origen.estado_gestion == EstadoCamaGestion.PROCESO_DE_ALTA
+    # doble-vínculo evitado: la internación está SOLO en la destino
+    assert destino.internacion_actual_id == internacion.id
+    assert origen.internacion_actual_id is None
     # la reserva quedó CUMPLIDA
     reserva = await session.get(Reserva, pase.reserva_id)
     assert reserva.estado == EstadoReserva.CUMPLIDA
@@ -332,6 +335,7 @@ async def test_flujo_completo_end_to_end(session, servicio):
     assert destino.estado_gestion == EstadoCamaGestion.OCUPADA
     assert destino.internacion_actual_id == internacion.id
     assert origen.estado_gestion == EstadoCamaGestion.PROCESO_DE_ALTA  # camino de limpieza
+    assert origen.internacion_actual_id is None  # la internación está SOLO en la destino
 
 
 # --------------------------------------------------------------------------- #

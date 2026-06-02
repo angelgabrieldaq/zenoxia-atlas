@@ -237,6 +237,10 @@ class ServicioPases:
                 session, cama_origen, RolOperativo.MEDICO,
                 actor_nombre=actor_nombre, commit=False,
             )
+            # En un pase el paciente ya está en la destino: la origen libera el vínculo.
+            # B2 usa MANTIENE para OCUPADA→PROCESO_DE_ALTA (correcto en altas normales),
+            # pero el orquestador debe desvincularlo aquí porque B2 no conoce el contexto.
+            cama_origen.internacion_actual_id = None
 
             # Pase confirmado + hito de recepción física (regla de oro).
             pase.estado = EstadoPase.CONFIRMADO
