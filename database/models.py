@@ -9,6 +9,8 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from database.enums import (
     CategoriaInternacion,
     EstadoCamaGestion,
+    EstadoReserva,
+    MotivoReserva,
     TipoCama,
     TipoComodidad,
 )
@@ -167,4 +169,53 @@ class HitoAtlas(Base):
     )
     sincronizado_core: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
+    )
+
+
+class Reserva(Base):
+    """Cama apartada para una internación que aún no llegó (§7). Sostiene la validación
+    quirúrgica cruzada (tipo de cama requerido vs. tipo de la cama).
+
+    Lleva el ciclo de vida de la reserva en sí (ACTIVA → CUMPLIDA / CANCELADA). El estado
+    de la CAMA no se toca acá: lo cambia ServicioTransiciones (B2), única fuente de verdad
+    del estado_gestion. VENCIDA queda definido en el enum pero no se usa en 1a (vencer es
+    decisión humana / capa 2)."""
+
+    __tablename__ = "reserva"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    cama_gestion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("cama_gestion.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    internacion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("internacion_local.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    motivo: Mapped[MotivoReserva] = mapped_column(
+        Enum(MotivoReserva, name="motivo_reserva"), nullable=False
+    )
+    estado: Mapped[EstadoReserva] = mapped_column(
+        Enum(EstadoReserva, name="estado_reserva"),
+        nullable=False,
+        default=EstadoReserva.ACTIVA,
+        index=True,
+    )
+    # Reusa el enum tipo_cama ya creado por la migración de cama_gestion (la migración
+    # de Reserva lo referencia con create_type=False; acá el modelo lo nombra igual).
+    tipo_cama_requerido: Mapped[TipoCama] = mapped_column(
+        Enum(TipoCama, name="tipo_cama"), nullable=False
+    )
+    motivo_cancelacion: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    creada_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    resuelta_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
