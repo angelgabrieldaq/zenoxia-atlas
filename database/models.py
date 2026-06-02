@@ -9,6 +9,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from database.enums import (
     CategoriaInternacion,
     EstadoCamaGestion,
+    EstadoPase,
     EstadoReserva,
     MotivoReserva,
     TipoCama,
@@ -217,5 +218,65 @@ class Reserva(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
     resuelta_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class PaseServicio(Base):
+    """Pase de un paciente entre camas/niveles (§8): el eslabón del enroque. Registra el
+    ISBAR como HECHO (que ocurrió), nunca su contenido clínico.
+
+    Orquestado por ServicioPases, que apoya la RESERVA de la cama destino y la LIBERACIÓN
+    de la origen. El estado de cada cama lo cambia SIEMPRE ServicioTransiciones (B2);
+    acá vive el ciclo de vida del pase (SOLICITADO → CAMA_ASIGNADA → EN_TRASLADO →
+    CONFIRMADO, o → CANCELADO)."""
+
+    __tablename__ = "pase_servicio"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    internacion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("internacion_local.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    cama_origen_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("cama_gestion.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    # null hasta que se asigna la cama destino (CAMA_ASIGNADA).
+    cama_destino_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("cama_gestion.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    # la reserva que aparta la cama destino (desde CAMA_ASIGNADA).
+    reserva_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("reserva.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    estado: Mapped[EstadoPase] = mapped_column(
+        Enum(EstadoPase, name="estado_pase"),
+        nullable=False,
+        default=EstadoPase.SOLICITADO,
+        index=True,
+    )
+    # Reusa el enum tipo_cama ya creado (la migración lo referencia con create_type=False).
+    tipo_cama_destino: Mapped[TipoCama] = mapped_column(
+        Enum(TipoCama, name="tipo_cama"), nullable=False
+    )
+    motivo_cancelacion: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    solicitado_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    confirmado_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    cancelado_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
