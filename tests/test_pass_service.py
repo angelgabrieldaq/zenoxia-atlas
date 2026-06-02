@@ -332,3 +332,35 @@ async def test_flujo_completo_end_to_end(session, servicio):
     assert destino.estado_gestion == EstadoCamaGestion.OCUPADA
     assert destino.internacion_actual_id == internacion.id
     assert origen.estado_gestion == EstadoCamaGestion.PROCESO_DE_ALTA  # camino de limpieza
+
+
+# --------------------------------------------------------------------------- #
+# 9. asignar_cama ATOMICIDAD: si el commit envolvente falla (después de que
+#    crear_reserva con commit=False ya flusheó reserva + cama RESERVADA), el rollback
+#    único descarta TODO: ni Reserva, ni cama RESERVADA, ni pase en CAMA_ASIGNADA.
+# --------------------------------------------------------------------------- #
+async def test_asignar_cama_atomicidad_rollback_conjunto(session, servicio, monkeypatch):
+    internacion, origen, destino = await _origen_y_destino(session)
+    pase = await servicio.solicitar_pase(session, internacion, origen, TipoCama.UTI, RolOperativo.MEDICO)
+    destino_id, pase_id = destino.id, pase.id
+
+    # Forzar un fallo en el commit envolvente de asignar_cama. crear_reserva(commit=False)
+    # ya habrá flusheado la reserva + cama RESERVADA (sin commitear); el rollback debe
+    # deshacerlo junto con el resto.
+    async def _boom():
+        raise RuntimeError("fallo simulado durante el commit de asignar_cama")
+    monkeypatch.setattr(session, "commit", _boom)
+
+    with pytest.raises(RuntimeError):
+        await servicio.asignar_cama(session, pase, destino, RolOperativo.ADMISION)
+
+    monkeypatch.undo()  # restaurar commit real; las verificaciones son sólo lecturas
+    # Nada persistió: ni Reserva, ni cama RESERVADA, ni pase avanzado, ni hito ISBAR.
+    assert await _contar(session, Reserva) == 0
+    destino_db = await session.get(CamaGestion, destino_id)
+    pase_db = await session.get(PaseServicio, pase_id)
+    assert destino_db.estado_gestion == EstadoCamaGestion.DISPONIBLE
+    assert pase_db.estado == EstadoPase.SOLICITADO
+    assert pase_db.reserva_id is None
+    assert pase_db.cama_destino_id is None
+    assert await _hito_existe(session, "ATLAS_PASE_ISBAR_REGISTRADO") == 0

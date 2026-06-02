@@ -47,21 +47,28 @@ class ServicioReservas:
         tipo_cama_requerido: TipoCama,
         rol: RolOperativo,
         actor_nombre: str | None = None,
+        commit: bool = True,
     ) -> Reserva:
-        """Crea una Reserva ACTIVA y deja la cama RESERVADA (DISPONIBLE → RESERVADA vía
-        B2), todo en una sola transacción.
+        """Crea una Reserva ACTIVA y deja la cama RESERVADA (DISPONIBLE → RESERVADA vía B2).
 
         Valida DURO el tipo de cama ANTES de tocar la base: si la cama no es del tipo que
         la reserva requiere, lanza ``ReservaTipoInvalido`` sin efectos.
+
+        ``commit`` (default True) preserva el comportamiento de siempre: transacción
+        atómica autónoma (el commit lo hace B2). Con ``commit=False`` propaga el modo a B2
+        (que aplica + ``flush`` en vez de commit, dejando la reserva visible y con id) y NO
+        hace rollback: deja commit/rollback al orquestador que envuelve esto en su
+        transacción (ej. ``PaseServicio.asignar_cama``).
         """
-        # 1. Validación dura de tipo (sin tocar la base).
+        # 1. Validación dura de tipo (sin tocar la base, independiente de commit).
         if cama.tipo != tipo_cama_requerido:
             raise ReservaTipoInvalido(
                 f"No se puede reservar una cama tipo {cama.tipo.value} para una reserva "
                 f"que requiere tipo {tipo_cama_requerido.value}."
             )
 
-        # 2. Registro Reserva + transición de cama en un solo commit (lo hace B2).
+        # 2. Registro Reserva + transición de cama. Con commit=True B2 commitea; con
+        # commit=False B2 sólo flushea (la reserva queda visible, con id, sin commit).
         reserva = Reserva(
             cama_gestion_id=cama.id,
             internacion_id=internacion.id,
@@ -72,10 +79,11 @@ class ServicioReservas:
         session.add(reserva)
         try:
             await self._transiciones.reservar(
-                session, cama, internacion, rol, actor_nombre=actor_nombre
+                session, cama, internacion, rol, actor_nombre=actor_nombre, commit=commit
             )
         except Exception:
-            await session.rollback()  # descarta también el registro Reserva pendiente
+            if commit:
+                await session.rollback()  # descarta también el registro Reserva pendiente
             raise
         return reserva
 

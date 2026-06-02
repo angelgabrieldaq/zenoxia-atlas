@@ -133,9 +133,14 @@ class ServicioPases:
         rol: RolOperativo,
         actor_nombre: str | None = None,
     ) -> PaseServicio:
-        """Asigna la cama destino: valida el tipo, la RESERVA (vía ServicioReservas →
-        destino RESERVADA), enlaza reserva/cama al pase, pasa a CAMA_ASIGNADA y registra
-        el hito ISBAR (que el ISBAR ocurrió, antes del traslado; sin contenido clínico)."""
+        """Asigna la cama destino, ATÓMICO en UN solo commit: valida el tipo, RESERVA la
+        destino (``ServicioReservas`` con ``commit=False`` → destino RESERVADA, sin
+        commitear), enlaza reserva/cama al pase, pasa a CAMA_ASIGNADA y registra el hito
+        ISBAR (que el ISBAR ocurrió, antes del traslado; sin contenido clínico).
+
+        Todo va en UNA transacción: ``crear_reserva(commit=False)`` + vínculo + estado +
+        hito se cierran con un único ``session.commit()``. Si algo falla, el ``rollback``
+        único descarta TODO (ni Reserva, ni cama RESERVADA, ni el pase en CAMA_ASIGNADA)."""
         self._exigir_estado(pase, EstadoPase.SOLICITADO)
         # Validación dura de tipo, ANTES de tocar la base.
         if cama_destino.tipo != pase.tipo_cama_destino:
@@ -145,23 +150,28 @@ class ServicioPases:
             )
 
         internacion = await session.get(InternacionLocal, pase.internacion_id)
-        # Crea la reserva sobre la destino (ServicioReservas commitea esta parte).
-        reserva = await self._reservas.crear_reserva(
-            session, cama_destino, internacion,
-            MotivoReserva.PASE_INTERNO, pase.tipo_cama_destino, rol,
-            actor_nombre=actor_nombre,
-        )
-        # Enlaza y avanza el pase + hito ISBAR.
-        pase.reserva_id = reserva.id
-        pase.cama_destino_id = cama_destino.id
-        pase.estado = EstadoPase.CAMA_ASIGNADA
-        session.add(
-            self._hito_pase(
-                pase, "ATLAS_PASE_ISBAR_REGISTRADO", rol, actor_nombre,
-                cama_gestion_id=cama_destino.id,
+        try:
+            # Reserva la destino SIN commitear (commit=False): queda flusheada, con id.
+            reserva = await self._reservas.crear_reserva(
+                session, cama_destino, internacion,
+                MotivoReserva.PASE_INTERNO, pase.tipo_cama_destino, rol,
+                actor_nombre=actor_nombre, commit=False,
             )
-        )
-        await session.commit()
+            # Enlaza y avanza el pase + hito ISBAR (todo pendiente).
+            pase.reserva_id = reserva.id
+            pase.cama_destino_id = cama_destino.id
+            pase.estado = EstadoPase.CAMA_ASIGNADA
+            session.add(
+                self._hito_pase(
+                    pase, "ATLAS_PASE_ISBAR_REGISTRADO", rol, actor_nombre,
+                    cama_gestion_id=cama_destino.id,
+                )
+            )
+            # UN solo commit envolvente: reserva + cama RESERVADA + vínculo + estado + ISBAR.
+            await session.commit()
+        except Exception:
+            await session.rollback()  # nada persiste: ni reserva, ni cama, ni pase avanzado
+            raise
         return pase
 
     async def iniciar_traslado(
