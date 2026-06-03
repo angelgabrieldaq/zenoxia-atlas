@@ -86,6 +86,10 @@ class InternacionOut(BaseModel):
     categoria: CategoriaInternacion
     comodidad_requerida: TipoComodidad | None
     servicio_codigo: str | None
+    cobertura: str | None
+    plan_cobertura: str | None
+    numero_socio: str | None
+    nota_cobertura: str | None
     iniciada_at: datetime
     finalizada_at: datetime | None
     paciente_local_id: uuid.UUID
@@ -104,6 +108,10 @@ class InternacionCreate(BaseModel):
     categoria: CategoriaInternacion
     comodidad_requerida: TipoComodidad | None = None
     servicio_codigo: str | None = Field(None, max_length=10)
+    cobertura: str | None = Field(None, max_length=100)
+    plan_cobertura: str | None = Field(None, max_length=60)
+    numero_socio: str | None = Field(None, max_length=60)
+    nota_cobertura: str | None = None
 
 
 # ------------------------------------------------------------------ #
