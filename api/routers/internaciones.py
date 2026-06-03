@@ -62,6 +62,10 @@ async def crear_internacion(
         categoria=body.categoria,
         comodidad_requerida=body.comodidad_requerida,
         servicio_codigo=body.servicio_codigo,
+        cobertura=body.cobertura,
+        plan_cobertura=body.plan_cobertura,
+        numero_socio=body.numero_socio,
+        nota_cobertura=body.nota_cobertura,
     )
     session.add(internacion)
     await session.commit()

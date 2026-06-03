@@ -133,6 +133,22 @@ _COMODIDADES = (
     TipoComodidad.INDIVIDUAL,
 )
 
+# Datos de cobertura ficticios (Atlas muestra, no interpreta).
+_COBERTURAS_DEMO = (
+    "Obra Social Ejemplo A",
+    "Prepaga Demo B",
+    "Cobertura Publica C",
+    "Mutual Ficticia D",
+)
+_PLANES_DEMO = ("Plan 100", "Plan 210", "Plan Basico", "Plan Integral")
+_NOTAS_COBERTURA_DEMO = (
+    "Cubre habitacion individual - demo",
+    "Requiere autorizacion previa - demo",
+    None,
+    None,
+    None,
+)
+
 # Estados que llevan un paciente vinculado en la cama (internacion_actual_id no nulo).
 _ESTADOS_CON_INTERNACION = frozenset(
     {
@@ -266,6 +282,10 @@ async def seed_hospital_demo(
                 categoria=categoria,
                 comodidad_requerida=_COMODIDADES[indice % len(_COMODIDADES)],
                 servicio_codigo=servicio,
+                cobertura=_COBERTURAS_DEMO[paciente_seq % len(_COBERTURAS_DEMO)],
+                plan_cobertura=_PLANES_DEMO[paciente_seq % len(_PLANES_DEMO)],
+                numero_socio=f"SOC-DEMO-{paciente_seq + 1:05d}",
+                nota_cobertura=_NOTAS_COBERTURA_DEMO[paciente_seq % len(_NOTAS_COBERTURA_DEMO)],
             )
             session.add(internacion)
             await session.flush()  # asigna internacion.id

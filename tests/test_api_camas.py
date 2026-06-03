@@ -226,6 +226,49 @@ async def test_flujo_completo_disponible_a_limpieza(
     assert r.json()["estado_gestion"] == "LIMPIEZA_TERMINAL"
 
 
+async def test_crear_internacion_con_cobertura(client: AsyncClient):
+    r = await client.post(
+        "/internaciones",
+        json={
+            "dni": "55443322",
+            "nombre": "Rosa",
+            "apellido": "Ficticio",
+            "categoria": "CLINICA",
+            "cobertura": "Obra Social Ejemplo A",
+            "plan_cobertura": "Plan 100",
+            "numero_socio": "SOC-00001",
+            "nota_cobertura": "Requiere autorizacion previa - demo",
+        },
+    )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["cobertura"] == "Obra Social Ejemplo A"
+    assert data["plan_cobertura"] == "Plan 100"
+    assert data["numero_socio"] == "SOC-00001"
+    assert data["nota_cobertura"] == "Requiere autorizacion previa - demo"
+
+    # Verificar que GET /internaciones también devuelve los campos.
+    r2 = await client.get("/internaciones")
+    assert r2.status_code == 200
+    item = r2.json()[0]
+    assert item["cobertura"] == "Obra Social Ejemplo A"
+    assert item["plan_cobertura"] == "Plan 100"
+
+
+async def test_crear_internacion_sin_cobertura_devuelve_nulos(client: AsyncClient):
+    """Los 4 campos de cobertura son opcionales y vienen null si no se envían."""
+    r = await client.post(
+        "/internaciones",
+        json={"dni": "11223344", "nombre": "Juan", "apellido": "Demo", "categoria": "CLINICA"},
+    )
+    assert r.status_code == 201
+    data = r.json()
+    assert data["cobertura"] is None
+    assert data["plan_cobertura"] is None
+    assert data["numero_socio"] is None
+    assert data["nota_cobertura"] is None
+
+
 async def test_health(client: AsyncClient):
     r = await client.get("/health")
     assert r.status_code == 200

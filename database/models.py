@@ -71,6 +71,10 @@ class InternacionLocal(Base):
         nullable=True,
     )
     servicio_codigo: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    cobertura: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    plan_cobertura: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    numero_socio: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    nota_cobertura: Mapped[str | None] = mapped_column(Text, nullable=True)
     core_episodio_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
     )
