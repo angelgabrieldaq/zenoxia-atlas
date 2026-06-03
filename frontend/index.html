@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Atlas — Tablero de camas</title>
+  <meta name="description" content="Tablero de gestión de camas del módulo Atlas (Zenoxia)." />
+  <link rel="stylesheet" href="design-tokens.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Salto de teclado para lectores de pantalla / navegación por teclado (WCAG 2.4.1) -->
+  <a class="skip-link" href="#board">Saltar al tablero</a>
+
+  <header id="topbar">
+    <div class="brand">
+      <span class="brand-logo" aria-hidden="true">⬡</span>
+      <span class="brand-text">
+        <span class="brand-name">Atlas</span>
+        <span class="brand-sub">Tablero de camas · Zenoxia</span>
+      </span>
+    </div>
+
+    <div class="topbar-controls">
+      <div class="field">
+        <label for="actor-nombre">Operador</label>
+        <input id="actor-nombre" type="text" placeholder="(opcional)" autocomplete="off"
+               inputmode="text" maxlength="100" />
+      </div>
+      <div class="field">
+        <label for="rol-select">Actuando como</label>
+        <select id="rol-select" aria-describedby="rol-help"></select>
+        <span id="rol-help" class="visually-hidden">
+          El rol seleccionado se envía con cada acción. Cada transición exige un rol concreto.
+        </span>
+      </div>
+      <button id="btn-refresh" class="btn btn-ghost" type="button">Actualizar</button>
+    </div>
+  </header>
+
+  <!-- Resumen de censo por estado -->
+  <section id="resumen" aria-label="Resumen de ocupación por estado" aria-live="polite"></section>
+
+  <!-- Tablero: secciones por sector con grilla de camas -->
+  <main id="board" tabindex="-1" aria-label="Camas agrupadas por sector"></main>
+
+  <!-- Panel lateral de detalle (se monta dinámicamente) -->
+  <div id="drawer-host"></div>
+
+  <!-- Avisos (toasts) -->
+  <div id="toast-host" class="toast-host"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
