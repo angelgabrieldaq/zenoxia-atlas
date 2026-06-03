@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -219,3 +219,36 @@ class Reserva(Base):
     resuelta_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+class NotaCama(Base):
+    """Nota libre de comunicación operativa sobre una cama (§9b). Editable y auditable.
+
+    Persiste aunque cambie el paciente (vinculada a la CAMA, no a la internación).
+    El borrado es lógico (activa=False): el rastro queda siempre en la base.
+    No es append-only como HitoAtlas — el texto se puede editar — pero sí auditable:
+    se registra quién creó y quién editó por última vez."""
+
+    __tablename__ = "nota_cama"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    cama_gestion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("cama_gestion.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    texto: Mapped[str] = mapped_column(Text, nullable=False)
+    creada_por_rol: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    creada_por_nombre: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    creada_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    modificada_por_rol: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    modificada_por_nombre: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    modificada_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, onupdate=func.now()
+    )
+    activa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
