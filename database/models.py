@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -252,3 +252,66 @@ class NotaCama(Base):
         DateTime(timezone=True), nullable=True, onupdate=func.now()
     )
     activa: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class PasoAltaCatalogo(Base):
+    """Plantilla configurable de pasos de pre-alta que la institución usa (§6).
+
+    Cada hospital activa solo los pasos que necesita (activo). El borrado es lógico.
+    ``categoria_aplica`` NULL = universal (aplica a toda internación); con valor =
+    solo aplica a esa categoría. ``bloqueante`` marca el paso como condición dura para
+    el alta física (el override de bloqueantes es el sub-paso 2; acá solo se modela)."""
+
+    __tablename__ = "paso_alta_catalogo"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    codigo: Mapped[str] = mapped_column(
+        String(50), nullable=False, unique=True, index=True
+    )
+    nombre: Mapped[str] = mapped_column(String(150), nullable=False)
+    # Reusa categoria_internacion (ya creada por internacion_local): la migración lo
+    # referencia con create_type=False. NULL = aplica a todas las categorías.
+    categoria_aplica: Mapped[CategoriaInternacion | None] = mapped_column(
+        Enum(CategoriaInternacion, name="categoria_internacion", create_type=False),
+        nullable=True,
+    )
+    bloqueante: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    activo: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    orden: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class PasoAltaInternacion(Base):
+    """Instancia de un paso del catálogo para una internación concreta (§6).
+
+    Al entrar a PROCESO_DE_ALTA se instancian los pasos del catálogo que apliquen.
+    ``era_bloqueante`` es un snapshot del ``bloqueante`` del catálogo al instanciar:
+    si el catálogo cambia después, la internación conserva la regla con la que entró."""
+
+    __tablename__ = "paso_alta_internacion"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    internacion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("internacion_local.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    paso_catalogo_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("paso_alta_catalogo.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    era_bloqueante: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    completado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    completado_por_rol: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    completado_por_nombre: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    completado_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    creada_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
