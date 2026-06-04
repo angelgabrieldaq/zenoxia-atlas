@@ -22,8 +22,9 @@ from api.schemas import (
     NotaCamaOut,
     OcuparBody,
     ReservarBody,
+    RevertirAltaBody,
 )
-from database.enums import EstadoReserva, MotivoReserva
+from database.enums import EstadoCamaGestion, EstadoReserva, MotivoReserva
 from database.models import (
     CamaGestion,
     HitoAtlas,
@@ -35,7 +36,11 @@ from database.models import (
 from domain.note_service import ServicioNotas
 from domain.reservation_service import ReservaTipoInvalido, ServicioReservas
 from domain.state_machine import TransicionInvalida
-from domain.transition_service import RolNoAutorizado, ServicioTransiciones
+from domain.transition_service import (
+    ReversionSinInternacion,
+    RolNoAutorizado,
+    ServicioTransiciones,
+)
 
 router = APIRouter(prefix="/camas", tags=["camas"])
 
@@ -263,5 +268,46 @@ async def cancelar_reserva_cama(
         body.rol,
         actor_nombre=body.actor_nombre,
     )
+    await session.refresh(cama)
+    return CamaOut.model_validate(cama)
+
+
+@router.post("/{cama_id}/revertir-alta", response_model=CamaOut)
+async def revertir_alta(
+    cama_id: uuid.UUID,
+    body: RevertirAltaBody,
+    session: AsyncSession = Depends(get_session),
+    transiciones: ServicioTransiciones = Depends(get_transiciones),
+):
+    """Revierte un alta: la cama vuelve a OCUPADA. Despacha según el estado actual:
+
+    - PROCESO_DE_ALTA → reversión temprana (todavía no hubo alta física; rol MEDICO).
+    - LIMPIEZA_TERMINAL → reversión tardía (el alta física ya pasó; rol ADMISION; el
+      paciente se recupera del hito de alta física).
+
+    El tipo (ALTA_INFORMADA_POR_ERROR / REINGRESO_FISICO) clasifica el motivo y queda en
+    el hito (código distinto por tipo). Reabre la internación si estaba finalizada.
+    """
+    cama = await _get_cama_or_404(cama_id, session)
+
+    if cama.estado_gestion == EstadoCamaGestion.PROCESO_DE_ALTA:
+        await transiciones.revertir_alta_temprana(
+            session, cama, body.rol, body.motivo_reversion,
+            tipo=body.tipo_reversion, actor_nombre=body.actor_nombre,
+        )
+    elif cama.estado_gestion == EstadoCamaGestion.LIMPIEZA_TERMINAL:
+        await transiciones.revertir_alta_tardia(
+            session, cama, body.rol, body.motivo_reversion,
+            tipo=body.tipo_reversion, actor_nombre=body.actor_nombre,
+        )
+    else:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"No se puede revertir un alta desde {cama.estado_gestion.value}. "
+                f"Sólo desde PROCESO_DE_ALTA (temprana) o LIMPIEZA_TERMINAL (tardía)."
+            ),
+        )
+
     await session.refresh(cama)
     return CamaOut.model_validate(cama)

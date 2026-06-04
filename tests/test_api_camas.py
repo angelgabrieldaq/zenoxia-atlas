@@ -376,6 +376,188 @@ async def test_cancelar_reserva_sin_reserva_activa_devuelve_409(
     assert r.status_code == 409
 
 
+# ------------------------------------------------------------------ #
+# Revertir alta (temprana / tardía) + TipoReversion
+# ------------------------------------------------------------------ #
+
+async def _ocupar_cama(session: AsyncSession, cama: CamaGestion, internacion: InternacionLocal):
+    cama.estado_gestion = EstadoCamaGestion.OCUPADA
+    cama.internacion_actual_id = internacion.id
+    await session.commit()
+
+
+async def test_revertir_alta_temprana_por_error(
+    client: AsyncClient, session: AsyncSession
+):
+    """PROCESO_DE_ALTA + ALTA_INFORMADA_POR_ERROR → OCUPADA, hito
+    ATLAS_ALTA_REVERTIDA_POR_ERROR; el vínculo internación↔cama se mantiene."""
+    from sqlalchemy import select as _select
+
+    from database.models import HitoAtlas
+
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.PROCESO_DE_ALTA)
+    cama.internacion_actual_id = internacion.id
+    await session.commit()
+
+    r = await client.post(
+        f"/camas/{cama.id}/revertir-alta",
+        json={
+            "rol": "MEDICO",
+            "tipo_reversion": "ALTA_INFORMADA_POR_ERROR",
+            "motivo_reversion": "El alta se cargó por error",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["estado_gestion"] == "OCUPADA"
+    assert body["internacion_actual_id"] == str(internacion.id)
+
+    hito = (
+        await session.execute(
+            _select(HitoAtlas)
+            .where(HitoAtlas.cama_gestion_id == cama.id)
+            .order_by(HitoAtlas.registrado_at.desc())
+        )
+    ).scalars().first()
+    assert hito.hito_codigo == "ATLAS_ALTA_REVERTIDA_POR_ERROR"
+    assert hito.metadata_evento["tipo_reversion"] == "ALTA_INFORMADA_POR_ERROR"
+    assert hito.metadata_evento["motivo_reversion"] == "El alta se cargó por error"
+
+
+async def test_revertir_alta_tardia_reingreso_fisico(
+    client: AsyncClient, session: AsyncSession
+):
+    """Llegá a LIMPIEZA_TERMINAL por el flujo real (ocupar → iniciar_alta → alta_fisica)
+    y revertí con REINGRESO_FISICO. La internación se recupera del hito de alta y la cama
+    vuelve a OCUPADA con el mismo paciente; hito ATLAS_REINGRESO_FISICO."""
+    from sqlalchemy import select as _select
+
+    from database.models import HitoAtlas
+
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session)
+    cid = str(cama.id)
+
+    await client.post(
+        f"/camas/{cid}/ocupar",
+        json={"internacion_id": str(internacion.id), "rol": "ADMISION"},
+    )
+    await client.post(f"/camas/{cid}/iniciar-alta", json={"rol": "MEDICO"})
+    await client.post(f"/camas/{cid}/alta-fisica", json={"rol": "ADMISION"})
+
+    await session.refresh(cama)
+    assert cama.estado_gestion == EstadoCamaGestion.LIMPIEZA_TERMINAL
+    assert cama.internacion_actual_id is None  # el alta física lo desvinculó
+
+    r = await client.post(
+        f"/camas/{cid}/revertir-alta",
+        json={
+            "rol": "ADMISION",
+            "tipo_reversion": "REINGRESO_FISICO",
+            "motivo_reversion": "Paciente volvió al edificio",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["estado_gestion"] == "OCUPADA"
+    assert body["internacion_actual_id"] == str(internacion.id)  # re-vinculado
+
+    hito = (
+        await session.execute(
+            _select(HitoAtlas)
+            .where(HitoAtlas.cama_gestion_id == cama.id)
+            .order_by(HitoAtlas.registrado_at.desc())
+        )
+    ).scalars().first()
+    assert hito.hito_codigo == "ATLAS_REINGRESO_FISICO"
+    assert hito.metadata_evento["tipo_reversion"] == "REINGRESO_FISICO"
+
+
+async def test_revertir_alta_reabre_internacion_finalizada(
+    client: AsyncClient, session: AsyncSession
+):
+    """Si la internación tenía finalizada_at seteado, la reversión la reabre
+    (finalizada_at = None) en la misma transacción."""
+    from datetime import datetime, timezone
+
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.PROCESO_DE_ALTA)
+    cama.internacion_actual_id = internacion.id
+    internacion.finalizada_at = datetime.now(timezone.utc)
+    await session.commit()
+
+    r = await client.post(
+        f"/camas/{cama.id}/revertir-alta",
+        json={
+            "rol": "MEDICO",
+            "tipo_reversion": "ALTA_INFORMADA_POR_ERROR",
+            "motivo_reversion": "Alta por error con internación ya finalizada",
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    await session.refresh(internacion)
+    assert internacion.finalizada_at is None
+
+
+async def test_revertir_alta_estado_invalido_devuelve_409(
+    client: AsyncClient, session: AsyncSession
+):
+    """Cama DISPONIBLE u OCUPADA → 409 (sólo se revierte desde PROCESO_DE_ALTA o
+    LIMPIEZA_TERMINAL)."""
+    cama = await _crear_cama(session)  # DISPONIBLE
+    r = await client.post(
+        f"/camas/{cama.id}/revertir-alta",
+        json={
+            "rol": "ADMISION",
+            "tipo_reversion": "ALTA_INFORMADA_POR_ERROR",
+            "motivo_reversion": "no aplica",
+        },
+    )
+    assert r.status_code == 409
+
+
+async def test_revertir_alta_rol_incorrecto_devuelve_403(
+    client: AsyncClient, session: AsyncSession
+):
+    """En PROCESO_DE_ALTA sólo MEDICO puede revertir; ADMISION → 403."""
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.PROCESO_DE_ALTA)
+    cama.internacion_actual_id = internacion.id
+    await session.commit()
+
+    r = await client.post(
+        f"/camas/{cama.id}/revertir-alta",
+        json={
+            "rol": "ADMISION",
+            "tipo_reversion": "ALTA_INFORMADA_POR_ERROR",
+            "motivo_reversion": "rol equivocado",
+        },
+    )
+    assert r.status_code == 403
+
+
+async def test_revertir_alta_motivo_vacio_devuelve_422(
+    client: AsyncClient, session: AsyncSession
+):
+    """Pydantic rebota motivo vacío con 422 antes del endpoint (min_length=1)."""
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session, estado=EstadoCamaGestion.PROCESO_DE_ALTA)
+    cama.internacion_actual_id = internacion.id
+    await session.commit()
+
+    r = await client.post(
+        f"/camas/{cama.id}/revertir-alta",
+        json={
+            "rol": "MEDICO",
+            "tipo_reversion": "ALTA_INFORMADA_POR_ERROR",
+            "motivo_reversion": "",
+        },
+    )
+    assert r.status_code == 422
+
+
 async def test_cancelar_reserva_motivo_vacio_devuelve_422(
     client: AsyncClient, session: AsyncSession
 ):

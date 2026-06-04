@@ -24,6 +24,7 @@ from database.enums import (
     CategoriaInternacion,
     EstadoCamaGestion,
     TipoCama,
+    TipoReversion,
 )
 from database.models import CamaGestion, HitoAtlas, InternacionLocal, PacienteLocal
 from domain.state_machine import RolOperativo, TransicionInvalida
@@ -310,6 +311,7 @@ async def test_revertir_alta_tardia_con_internacion_revincula(session, servicio)
         cama,
         RolOperativo.ADMISION,
         motivo_reversion="el paciente nunca egresó",
+        tipo=TipoReversion.ALTA_INFORMADA_POR_ERROR,
         internacion=internacion,
         limpieza_ya_ejecutada=True,
     )
@@ -317,9 +319,10 @@ async def test_revertir_alta_tardia_con_internacion_revincula(session, servicio)
     await session.refresh(cama)
     assert cama.estado_gestion == EstadoCamaGestion.OCUPADA
     assert cama.internacion_actual_id == internacion.id             # RE-ASIGNA
-    assert hito.hito_codigo == "ATLAS_ALTA_REVERTIDA"
+    assert hito.hito_codigo == "ATLAS_ALTA_REVERTIDA_POR_ERROR"
     assert hito.metadata_evento["motivo_reversion"] == "el paciente nunca egresó"
     assert hito.metadata_evento["limpieza_ya_ejecutada"] is True
+    assert hito.metadata_evento["tipo_reversion"] == "ALTA_INFORMADA_POR_ERROR"
     assert hito.metadata_evento["internacion_id"] == str(internacion.id)
 
 
@@ -341,15 +344,17 @@ async def test_flujo_completo_reversion_tardia_recupera_del_hito(session, servic
 
     # revertir SIN pasar internación → se recupera del hito de alta física
     hito = await servicio.revertir_alta_tardia(
-        session, cama, RolOperativo.ADMISION, motivo_reversion="volvió el paciente"
+        session, cama, RolOperativo.ADMISION, motivo_reversion="volvió el paciente",
+        tipo=TipoReversion.REINGRESO_FISICO,
     )
 
     await session.refresh(cama)
     assert cama.estado_gestion == EstadoCamaGestion.OCUPADA
     assert cama.internacion_actual_id == internacion.id  # MISMO paciente, recuperado
-    assert hito.hito_codigo == "ATLAS_ALTA_REVERTIDA"
+    assert hito.hito_codigo == "ATLAS_REINGRESO_FISICO"
     assert hito.metadata_evento["internacion_id"] == str(internacion.id)
     assert hito.metadata_evento["limpieza_ya_ejecutada"] is False
+    assert hito.metadata_evento["tipo_reversion"] == "REINGRESO_FISICO"
 
 
 # --------------------------------------------------------------------------- #
@@ -361,7 +366,8 @@ async def test_revertir_alta_tardia_sin_internacion_ni_hito_lanza(session, servi
 
     with pytest.raises(ReversionSinInternacion):
         await servicio.revertir_alta_tardia(
-            session, cama, RolOperativo.ADMISION, motivo_reversion="sin paciente"
+            session, cama, RolOperativo.ADMISION, motivo_reversion="sin paciente",
+            tipo=TipoReversion.ALTA_INFORMADA_POR_ERROR,
         )
 
     await session.refresh(cama)
@@ -378,7 +384,8 @@ async def test_reversion_sin_motivo_lanza_value_error(session, servicio):
 
     with pytest.raises(ValueError):
         await servicio.revertir_alta_temprana(
-            session, cama, RolOperativo.MEDICO, motivo_reversion="  "
+            session, cama, RolOperativo.MEDICO, motivo_reversion="  ",
+            tipo=TipoReversion.ALTA_INFORMADA_POR_ERROR,
         )
 
     await session.refresh(cama)

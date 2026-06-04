@@ -15,6 +15,7 @@ from database.enums import (
     EstadoCamaGestion,
     TipoCama,
     TipoComodidad,
+    TipoReversion,
 )
 from domain.state_machine import RolOperativo
 
@@ -154,6 +155,11 @@ class DesbloquearBody(_RolBase):
 
 class CancelarReservaBody(_RolBase):
     motivo_cancelacion: str = Field(..., min_length=1, max_length=200)
+
+
+class RevertirAltaBody(_RolBase):
+    tipo_reversion: TipoReversion
+    motivo_reversion: str = Field(..., min_length=1, max_length=200)
 
 
 # ------------------------------------------------------------------ #
