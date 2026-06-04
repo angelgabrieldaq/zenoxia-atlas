@@ -152,6 +152,10 @@ class DesbloquearBody(_RolBase):
     pass
 
 
+class CancelarReservaBody(_RolBase):
+    motivo_cancelacion: str = Field(..., min_length=1, max_length=200)
+
+
 # ------------------------------------------------------------------ #
 # Respuesta de error estándar
 # ------------------------------------------------------------------ #

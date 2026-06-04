@@ -273,3 +273,123 @@ async def test_health(client: AsyncClient):
     r = await client.get("/health")
     assert r.status_code == 200
     assert r.json()["status"] == "ok"
+
+
+# ------------------------------------------------------------------ #
+# Cancelar reserva
+# ------------------------------------------------------------------ #
+
+async def test_cancelar_reserva_camino_feliz(
+    client: AsyncClient, session: AsyncSession
+):
+    """Reserva standalone (sin pase): RESERVADA → DISPONIBLE, reserva CANCELADA con
+    motivo_cancelacion persistido."""
+    from sqlalchemy import select as _select
+
+    from database.enums import EstadoReserva
+    from database.models import Reserva
+
+    cama = await _crear_cama(session)
+    internacion = await _crear_internacion(session)
+
+    r = await client.post(
+        f"/camas/{cama.id}/reservar",
+        json={
+            "internacion_id": str(internacion.id),
+            "tipo_cama_requerido": "CAMA_INTERNACION",
+            "rol": "ADMISION",
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["estado_gestion"] == "RESERVADA"
+
+    r = await client.post(
+        f"/camas/{cama.id}/cancelar-reserva",
+        json={"motivo_cancelacion": "El paciente no llegó", "rol": "ADMISION"},
+    )
+    assert r.status_code == 200
+    assert r.json()["estado_gestion"] == "DISPONIBLE"
+
+    reserva = (
+        await session.execute(
+            _select(Reserva).where(Reserva.cama_gestion_id == cama.id)
+        )
+    ).scalar_one()
+    assert reserva.estado == EstadoReserva.CANCELADA
+    assert reserva.motivo_cancelacion == "El paciente no llegó"
+
+
+async def test_cancelar_reserva_guard_pase_devuelve_409(
+    client: AsyncClient, session: AsyncSession
+):
+    """Si la reserva pertenece a un PaseServicio (cama-destino del pase), el endpoint
+    rechaza con 409 y NO toca la reserva ni la cama."""
+    from database.enums import EstadoCamaGestion, EstadoReserva
+    from database.models import Reserva
+    from domain.pass_service import ServicioPases
+    from domain.state_machine import RolOperativo
+
+    internacion = await _crear_internacion(session)
+    origen = await _crear_cama(
+        session, nombre="UTI-ORIG", tipo=TipoCama.UTI,
+        estado=EstadoCamaGestion.OCUPADA,
+    )
+    origen.internacion_actual_id = internacion.id
+    await session.commit()
+    destino = await _crear_cama(
+        session, nombre="UTI-DEST", tipo=TipoCama.UTI,
+        estado=EstadoCamaGestion.DISPONIBLE,
+    )
+
+    servicio_pases = ServicioPases()
+    pase = await servicio_pases.solicitar_pase(
+        session, internacion, origen, TipoCama.UTI, RolOperativo.MEDICO
+    )
+    await servicio_pases.asignar_cama(
+        session, pase, destino, RolOperativo.ADMISION
+    )
+
+    r = await client.post(
+        f"/camas/{destino.id}/cancelar-reserva",
+        json={"motivo_cancelacion": "intento suelto", "rol": "ADMISION"},
+    )
+    assert r.status_code == 409
+    assert str(pase.id) in r.json()["detail"]
+
+    # Sin efectos colaterales: destino sigue RESERVADA, reserva sigue ACTIVA.
+    await session.refresh(destino)
+    assert destino.estado_gestion == EstadoCamaGestion.RESERVADA
+    reserva = await session.get(Reserva, pase.reserva_id)
+    await session.refresh(reserva)
+    assert reserva.estado == EstadoReserva.ACTIVA
+
+
+async def test_cancelar_reserva_sin_reserva_activa_devuelve_409(
+    client: AsyncClient, session: AsyncSession
+):
+    """Cama DISPONIBLE sin reserva activa → 409."""
+    cama = await _crear_cama(session)
+    r = await client.post(
+        f"/camas/{cama.id}/cancelar-reserva",
+        json={"motivo_cancelacion": "no aplica", "rol": "ADMISION"},
+    )
+    assert r.status_code == 409
+
+
+async def test_cancelar_reserva_motivo_vacio_devuelve_422(
+    client: AsyncClient, session: AsyncSession
+):
+    """Pydantic rebota motivo vacío o ausente con 422 antes del endpoint."""
+    cama = await _crear_cama(session)
+
+    r = await client.post(
+        f"/camas/{cama.id}/cancelar-reserva",
+        json={"motivo_cancelacion": "", "rol": "ADMISION"},
+    )
+    assert r.status_code == 422
+
+    r = await client.post(
+        f"/camas/{cama.id}/cancelar-reserva",
+        json={"rol": "ADMISION"},
+    )
+    assert r.status_code == 422
