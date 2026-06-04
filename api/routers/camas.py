@@ -14,6 +14,7 @@ from api.schemas import (
     BloquearBody,
     CamaDetalleOut,
     CamaOut,
+    CancelarReservaBody,
     DesbloquearBody,
     FinalizarLimpiezaBody,
     HitoOut,
@@ -22,8 +23,15 @@ from api.schemas import (
     OcuparBody,
     ReservarBody,
 )
-from database.enums import MotivoReserva
-from database.models import CamaGestion, HitoAtlas, InternacionLocal, NotaCama
+from database.enums import EstadoReserva, MotivoReserva
+from database.models import (
+    CamaGestion,
+    HitoAtlas,
+    InternacionLocal,
+    NotaCama,
+    PaseServicio,
+    Reserva,
+)
 from domain.note_service import ServicioNotas
 from domain.reservation_service import ReservaTipoInvalido, ServicioReservas
 from domain.state_machine import TransicionInvalida
@@ -195,6 +203,65 @@ async def desbloquear_cama(
     cama = await _get_cama_or_404(cama_id, session)
     await transiciones.desbloquear(
         session, cama, body.rol, actor_nombre=body.actor_nombre
+    )
+    await session.refresh(cama)
+    return CamaOut.model_validate(cama)
+
+
+@router.post("/{cama_id}/cancelar-reserva", response_model=CamaOut)
+async def cancelar_reserva_cama(
+    cama_id: uuid.UUID,
+    body: CancelarReservaBody,
+    session: AsyncSession = Depends(get_session),
+    reservas: ServicioReservas = Depends(get_reservas),
+):
+    """Cancela la reserva ACTIVA de una cama (RESERVADA → DISPONIBLE), guardando por qué
+    no se ocupó. ``motivo_cancelacion`` es obligatorio.
+
+    Una cama RESERVADA tiene exactamente una reserva ACTIVA (la máquina de estados no
+    permite reservar una cama que no esté DISPONIBLE), así que se resuelve por cama_id sin
+    ambigüedad. Si esa reserva es la cama-destino de un PaseServicio, NO se cancela acá:
+    hay que cancelar el pase (que libera su reserva de forma coordinada). Cancelarla suelta
+    dejaría el pase apuntando a una reserva muerta.
+    """
+    cama = await _get_cama_or_404(cama_id, session)
+
+    reserva = (
+        await session.execute(
+            select(Reserva).where(
+                Reserva.cama_gestion_id == cama_id,
+                Reserva.estado == EstadoReserva.ACTIVA,
+            )
+        )
+    ).scalar_one_or_none()
+
+    if reserva is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"La cama {cama_id} no tiene una reserva activa para cancelar.",
+        )
+
+    pase = (
+        await session.execute(
+            select(PaseServicio).where(PaseServicio.reserva_id == reserva.id)
+        )
+    ).scalar_one_or_none()
+
+    if pase is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Esta reserva pertenece al pase {pase.id}. Cancelá el pase, no la "
+                f"reserva: el pase libera su cama de forma coordinada."
+            ),
+        )
+
+    await reservas.cancelar_reserva(
+        session,
+        reserva,
+        body.motivo_cancelacion,
+        body.rol,
+        actor_nombre=body.actor_nombre,
     )
     await session.refresh(cama)
     return CamaOut.model_validate(cama)
