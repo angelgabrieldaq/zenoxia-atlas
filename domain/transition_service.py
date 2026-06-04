@@ -25,7 +25,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.enums import EstadoCamaGestion
+from database.enums import EstadoCamaGestion, TipoReversion
 from database.models import CamaGestion, HitoAtlas, InternacionLocal
 from domain.state_machine import RolOperativo, TransicionInvalida, validar_transicion
 
@@ -96,8 +96,16 @@ _HITO_POR_TRANSICION: dict[tuple[EstadoCamaGestion, EstadoCamaGestion], str] = {
     (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.BLOQUEADA): "ATLAS_CAMA_BLOQUEADA",
     (EstadoCamaGestion.BLOQUEADA, EstadoCamaGestion.DISPONIBLE): "ATLAS_CAMA_DESBLOQUEADA",
     (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.BLOQUEADA): "ATLAS_CAMA_BLOQUEADA",
-    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.OCUPADA): "ATLAS_ALTA_REVERTIDA",
-    (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.OCUPADA): "ATLAS_ALTA_REVERTIDA",
+    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.OCUPADA): "ATLAS_ALTA_REVERTIDA",  # overrideado por tipo en _revertir_alta (ver _HITO_POR_TIPO_REVERSION)
+    (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.OCUPADA): "ATLAS_ALTA_REVERTIDA",  # overrideado por tipo en _revertir_alta (ver _HITO_POR_TIPO_REVERSION)
+}
+
+# Código de hito según TipoReversion: el motivo (no el momento) determina el código.
+# El reingreso físico es legalmente relevante y debe poder consultarse sin escarbar
+# en metadata_evento, así que va a un código de hito propio.
+_HITO_POR_TIPO_REVERSION: dict[TipoReversion, str] = {
+    TipoReversion.ALTA_INFORMADA_POR_ERROR: "ATLAS_ALTA_REVERTIDA_POR_ERROR",
+    TipoReversion.REINGRESO_FISICO: "ATLAS_REINGRESO_FISICO",
 }
 
 # Hito que deja el alta física (PROCESO_DE_ALTA → LIMPIEZA_TERMINAL, §11). La reversión
@@ -129,6 +137,7 @@ class ServicioTransiciones:
         internacion: InternacionLocal | None = None,
         metadata: dict | None = None,
         commit: bool = True,
+        hito_codigo_override: str | None = None,
     ) -> HitoAtlas:
         """Ejecuta ``cama`` : ``origen`` → ``estado_destino``.
 
@@ -143,6 +152,13 @@ class ServicioTransiciones:
         y hace sólo ``session.flush()`` (quedan visibles en la sesión sin cerrar la
         transacción) y NO hace commit ni rollback: deja ambas decisiones al orquestador
         que envuelve varias transiciones en una sola transacción.
+
+        ``hito_codigo_override`` (default None) permite que la transición use un código
+        de hito distinto al fijo de ``_HITO_POR_TRANSICION[(origen, destino)]``. Sirve
+        para casos donde el código depende de un eje extra al par (origen, destino) — hoy
+        la reversión de alta, cuyo código depende del ``TipoReversion`` (ver
+        ``_HITO_POR_TIPO_REVERSION``). Para el resto de las transiciones queda en None y
+        nada cambia.
         """
         origen = cama.estado_gestion
 
@@ -205,7 +221,11 @@ class ServicioTransiciones:
             hito = HitoAtlas(
                 internacion_id=internacion_id_hito,
                 cama_gestion_id=cama.id,
-                hito_codigo=_HITO_POR_TRANSICION[(origen, estado_destino)],
+                hito_codigo=(
+                    hito_codigo_override
+                    if hito_codigo_override is not None
+                    else _HITO_POR_TRANSICION[(origen, estado_destino)]
+                ),
                 actor_rol=rol.value,
                 actor_nombre=actor_nombre,
                 metadata_evento=metadata_evento,
@@ -407,6 +427,7 @@ class ServicioTransiciones:
         cama: CamaGestion,
         rol: RolOperativo,
         motivo_reversion: str,
+        tipo: TipoReversion,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
         commit: bool = True,
@@ -416,7 +437,7 @@ class ServicioTransiciones:
         ``limpieza_ya_ejecutada`` es siempre False y no hay que re-asignar nada."""
         self._exigir_origen(cama, EstadoCamaGestion.PROCESO_DE_ALTA)
         return await self._revertir_alta(
-            session, cama, rol, motivo_reversion,
+            session, cama, rol, motivo_reversion, tipo,
             limpieza_ya_ejecutada=False, internacion=None,
             actor_nombre=actor_nombre, metadata=metadata, commit=commit,
         )
@@ -427,6 +448,7 @@ class ServicioTransiciones:
         cama: CamaGestion,
         rol: RolOperativo,
         motivo_reversion: str,
+        tipo: TipoReversion,
         internacion: InternacionLocal | None = None,
         limpieza_ya_ejecutada: bool = False,
         actor_nombre: str | None = None,
@@ -455,7 +477,7 @@ class ServicioTransiciones:
         if internacion is None:
             internacion = await self._recuperar_internacion_de_alta(session, cama)
         return await self._revertir_alta(
-            session, cama, rol, motivo_reversion,
+            session, cama, rol, motivo_reversion, tipo,
             limpieza_ya_ejecutada=limpieza_ya_ejecutada, internacion=internacion,
             actor_nombre=actor_nombre, metadata=metadata, commit=commit,
         )
@@ -500,15 +522,24 @@ class ServicioTransiciones:
         cama: CamaGestion,
         rol: RolOperativo,
         motivo_reversion: str,
+        tipo: TipoReversion,
         limpieza_ya_ejecutada: bool,
         internacion: InternacionLocal | None,
         actor_nombre: str | None,
         metadata: dict | None,
         commit: bool = True,
     ) -> HitoAtlas:
-        """Lógica común de las dos reversiones (→ OCUPADA, hito ATLAS_ALTA_REVERTIDA).
+        """Lógica común de las dos reversiones (→ OCUPADA). El código de hito sale de
+        ``_HITO_POR_TIPO_REVERSION[tipo]`` — el motivo (no el momento) lo determina.
         ``motivo_reversion`` es obligatorio (§11). ``internacion`` se re-asigna sólo en la
-        reversión tardía; en la temprana es None y la transición MANTIENE el vínculo."""
+        reversión tardía; en la temprana es None y la transición MANTIENE el vínculo.
+
+        Reapertura de internación: ambos tipos reabren la internación si ``finalizada_at``
+        está seteado (paciente vuelve a estar internado). En la temprana traemos la
+        internación con ``session.get`` desde ``cama.internacion_actual_id`` (que sigue
+        ahí porque la transición MANTIENE el vínculo); en la tardía ya viene re-vinculada
+        vía ``_recuperar_internacion_de_alta``. Si no hay internación a mano no es error:
+        no hay nada que reabrir."""
         if not (motivo_reversion and motivo_reversion.strip()):
             raise ValueError(
                 "La reversión de alta requiere 'motivo_reversion' (obligatorio, §11)."
@@ -516,10 +547,31 @@ class ServicioTransiciones:
         meta = {
             "motivo_reversion": motivo_reversion,
             "limpieza_ya_ejecutada": bool(limpieza_ya_ejecutada),
+            "tipo_reversion": tipo.value,
             **(metadata or {}),
         }
-        return await self.ejecutar_transicion(
+        hito = await self.ejecutar_transicion(
             session, cama, EstadoCamaGestion.OCUPADA, rol,
             actor_nombre=actor_nombre, internacion=internacion, metadata=meta,
-            commit=commit,
+            commit=False,
+            hito_codigo_override=_HITO_POR_TIPO_REVERSION[tipo],
         )
+
+        # Reapertura de internación, dentro de la misma transacción.
+        internacion_a_reabrir = internacion
+        if internacion_a_reabrir is None and cama.internacion_actual_id is not None:
+            internacion_a_reabrir = await session.get(
+                InternacionLocal, cama.internacion_actual_id
+            )
+        if internacion_a_reabrir is not None and internacion_a_reabrir.finalizada_at is not None:
+            internacion_a_reabrir.finalizada_at = None
+
+        if commit:
+            try:
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+        else:
+            await session.flush()
+        return hito

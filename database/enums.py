@@ -65,3 +65,17 @@ class EstadoPase(str, enum.Enum):
     EN_TRASLADO = "EN_TRASLADO"
     CONFIRMADO = "CONFIRMADO"
     CANCELADO = "CANCELADO"
+
+
+class TipoReversion(str, enum.Enum):
+    """Por qué se revierte un alta. Eje independiente del estado de la cama
+    (temprana/tardía): clasifica el MOTIVO, no el momento.
+
+    ALTA_INFORMADA_POR_ERROR: se marcó el alta pero el paciente nunca egresó del
+        edificio. Corrección de un dato falso (eco del 'anular alta administrativa' del HIS).
+    REINGRESO_FISICO: el paciente egresó del edificio y volvió; está físicamente
+        presente en la cama. Evento con peso legal/probatorio.
+    """
+
+    ALTA_INFORMADA_POR_ERROR = "ALTA_INFORMADA_POR_ERROR"
+    REINGRESO_FISICO = "REINGRESO_FISICO"

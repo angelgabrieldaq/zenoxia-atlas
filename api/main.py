@@ -13,7 +13,7 @@ from api.routers import camas, internaciones
 from domain.discharge_checklist_service import AltaConPasosPendientes
 from domain.reservation_service import ReservaTipoInvalido
 from domain.state_machine import TransicionInvalida
-from domain.transition_service import RolNoAutorizado
+from domain.transition_service import ReversionSinInternacion, RolNoAutorizado
 
 app = FastAPI(
     title="Atlas — Gestión de Camas",
@@ -47,6 +47,13 @@ async def handle_rol_no_autorizado(request: Request, exc: RolNoAutorizado):
 
 @app.exception_handler(ReservaTipoInvalido)
 async def handle_reserva_tipo_invalido(request: Request, exc: ReservaTipoInvalido):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(ReversionSinInternacion)
+async def handle_reversion_sin_internacion(
+    request: Request, exc: ReversionSinInternacion
+):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
