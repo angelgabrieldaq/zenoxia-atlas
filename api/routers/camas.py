@@ -8,19 +8,22 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_notas, get_reservas, get_session, get_transiciones
+from api.dependencies import get_checklist, get_notas, get_reservas, get_session, get_transiciones
 from api.schemas import (
     AltaFisicaBody,
     BloquearBody,
     CamaDetalleOut,
     CamaOut,
     CancelarReservaBody,
+    CompletarPasoBody,
     DesbloquearBody,
     FinalizarLimpiezaBody,
     HitoOut,
     IniciarAltaBody,
+    NotaCamaCreate,
     NotaCamaOut,
     OcuparBody,
+    PasoAltaInternacionOut,
     ReservarBody,
     RevertirAltaBody,
 )
@@ -30,9 +33,12 @@ from database.models import (
     HitoAtlas,
     InternacionLocal,
     NotaCama,
+    PasoAltaCatalogo,
+    PasoAltaInternacion,
     PaseServicio,
     Reserva,
 )
+from domain.discharge_checklist_service import ServicioChecklistAlta
 from domain.note_service import ServicioNotas
 from domain.reservation_service import ReservaTipoInvalido, ServicioReservas
 from domain.state_machine import TransicionInvalida
@@ -100,6 +106,95 @@ async def detalle_cama(
     )
 
 
+@router.post("/{cama_id}/notas", response_model=NotaCamaOut)
+async def crear_nota_cama(
+    cama_id: uuid.UUID,
+    body: NotaCamaCreate,
+    session: AsyncSession = Depends(get_session),
+    notas_svc: ServicioNotas = Depends(get_notas),
+):
+    cama = await _get_cama_or_404(cama_id, session)
+    nota = await notas_svc.crear_nota(
+        session,
+        cama,
+        body.texto,
+        creada_por_rol=body.rol,
+        creada_por_nombre=body.actor_nombre,
+    )
+    return NotaCamaOut.model_validate(nota)
+
+
+async def _paso_alta_internacion_out(
+    session: AsyncSession,
+    paso: PasoAltaInternacion,
+) -> PasoAltaInternacionOut:
+    paso_cat = await session.get(PasoAltaCatalogo, paso.paso_catalogo_id)
+    return PasoAltaInternacionOut(
+        id=paso.id,
+        internacion_id=paso.internacion_id,
+        paso_catalogo_id=paso.paso_catalogo_id,
+        codigo=paso_cat.codigo if paso_cat is not None else None,
+        nombre=paso_cat.nombre if paso_cat is not None else None,
+        era_bloqueante=paso.era_bloqueante,
+        completado=paso.completado,
+        completado_por_rol=paso.completado_por_rol,
+        completado_por_nombre=paso.completado_por_nombre,
+        completado_at=paso.completado_at,
+        creada_at=paso.creada_at,
+    )
+
+
+@router.post(
+    "/internaciones/{internacion_id}/pasos/instanciar",
+    response_model=list[PasoAltaInternacionOut],
+)
+async def instanciar_pasos_internacion(
+    internacion_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    checklist: ServicioChecklistAlta = Depends(get_checklist),
+):
+    internacion = await _get_internacion_or_404(internacion_id, session)
+    await checklist.instanciar_pasos(session, internacion)
+    pasos = await checklist.listar_pasos(session, internacion)
+    return [await _paso_alta_internacion_out(session, paso) for paso in pasos]
+
+
+@router.get(
+    "/internaciones/{internacion_id}/pasos",
+    response_model=list[PasoAltaInternacionOut],
+)
+async def listar_pasos_internacion(
+    internacion_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    checklist: ServicioChecklistAlta = Depends(get_checklist),
+):
+    internacion = await _get_internacion_or_404(internacion_id, session)
+    pasos = await checklist.listar_pasos(session, internacion)
+    return [await _paso_alta_internacion_out(session, paso) for paso in pasos]
+
+
+@router.post("/pasos/{paso_id}/completar", response_model=PasoAltaInternacionOut)
+async def completar_paso(
+    paso_id: uuid.UUID,
+    body: CompletarPasoBody,
+    session: AsyncSession = Depends(get_session),
+    checklist: ServicioChecklistAlta = Depends(get_checklist),
+):
+    paso = await session.get(PasoAltaInternacion, paso_id)
+    if paso is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Paso de alta {paso_id} no encontrado.",
+        )
+    paso = await checklist.completar_paso(
+        session,
+        paso,
+        body.rol,
+        actor_nombre=body.actor_nombre,
+    )
+    return await _paso_alta_internacion_out(session, paso)
+
+
 @router.post("/{cama_id}/ocupar", response_model=CamaOut)
 async def ocupar_cama(
     cama_id: uuid.UUID,
@@ -158,11 +253,26 @@ async def alta_fisica(
     cama_id: uuid.UUID,
     body: AltaFisicaBody,
     session: AsyncSession = Depends(get_session),
-    transiciones: ServicioTransiciones = Depends(get_transiciones),
+    checklist: ServicioChecklistAlta = Depends(get_checklist),
 ):
     cama = await _get_cama_or_404(cama_id, session)
-    await transiciones.dar_alta_fisica(
-        session, cama, body.rol, actor_nombre=body.actor_nombre
+    if cama.internacion_actual_id is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "No se puede dar el alta física: la cama no tiene una "
+                "internación asociada en este momento."
+            ),
+        )
+    internacion = await _get_internacion_or_404(cama.internacion_actual_id, session)
+    await checklist.dar_alta_fisica_validada(
+        session,
+        cama,
+        internacion,
+        body.rol,
+        actor_nombre=body.actor_nombre,
+        forzar=body.forzar,
+        motivo_override=body.motivo_override,
     )
     await session.refresh(cama)
     return CamaOut.model_validate(cama)

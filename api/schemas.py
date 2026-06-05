@@ -138,7 +138,8 @@ class IniciarAltaBody(_RolBase):
 
 
 class AltaFisicaBody(_RolBase):
-    pass
+    forzar: bool = False
+    motivo_override: str | None = None
 
 
 class FinalizarLimpiezaBody(_RolBase):
@@ -160,6 +161,30 @@ class CancelarReservaBody(_RolBase):
 class RevertirAltaBody(_RolBase):
     tipo_reversion: TipoReversion
     motivo_reversion: str = Field(..., min_length=1, max_length=200)
+
+
+class PasoAltaInternacionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    internacion_id: uuid.UUID
+    paso_catalogo_id: uuid.UUID
+    codigo: str | None = None
+    nombre: str | None = None
+    era_bloqueante: bool
+    completado: bool
+    completado_por_rol: str | None = None
+    completado_por_nombre: str | None = None
+    completado_at: datetime | None = None
+    creada_at: datetime
+
+
+class CompletarPasoBody(_RolBase):
+    pass
+
+
+class NotaCamaCreate(_RolBase):
+    texto: str = Field(..., min_length=1, max_length=500)
 
 
 # ------------------------------------------------------------------ #

@@ -92,6 +92,7 @@ const ICON = {
 const initialState = {
   camas: [],               // GET /camas  (CamaOut[])
   internacionesById: {},   // GET /internaciones, indexadas por id
+  checklistByInternacion: {}, // checklist cargado por internación
   rol: "ADMISION",
   actorNombre: "",
   detalle: null,           // GET /camas/{id}  (CamaDetalleOut) o null
@@ -104,6 +105,7 @@ const initialState = {
 const RENDERERS = {
   camas:            () => { renderResumen(); renderBoard(); },
   internacionesById:() => { renderResumen(); renderBoard(); renderDetalle(); },
+  checklistByInternacion: () => { renderDetalle(); },
   rol:              () => { renderDetalle(); },
   actorNombre:      () => {},
   detalle:          () => { renderDetalle(); },
@@ -225,6 +227,10 @@ async function abrirDetalle(camaId, trigger) {
     const detalle = await api("/camas/" + camaId);
     state.pendingAction = null;
     state.detalle = detalle;
+    const intern = internOf(detalle);
+    if (intern && detalle.estado_gestion === "PROCESO_DE_ALTA") {
+      await ensureChecklist(intern.id);
+    }
   } catch (e) {
     toast(e.message, "err");
   }
@@ -262,7 +268,66 @@ async function ejecutar(camaId, accionId, payload) {
     await cargarTablero();
     await abrirDetalle(camaId);
   } catch (e) {
-    // 409 (transición ilegal), 403 (rol no autorizado), 404, 400 → el {detail} se muestra tal cual.
+    if (accionId === "alta-fisica" && e.status === 409 && e.message.includes("pasos_pendientes")) {
+      toast("Alta física bloqueada por pasos pendientes. Completá el checklist o usa override en el backend.", "warn");
+    } else {
+      toast(e.message, "err");
+    }
+  }
+}
+
+async function loadChecklist(internacionId) {
+  try {
+    const pasos = await api(`/camas/internaciones/${internacionId}/pasos`);
+    state.checklistByInternacion = { ...state.checklistByInternacion, [internacionId]: pasos };
+  } catch (e) {
+    toast("No se pudo cargar el checklist: " + e.message, "err");
+  }
+}
+
+async function instantiateChecklist(internacionId) {
+  try {
+    await api(`/camas/internaciones/${internacionId}/pasos/instanciar`, { method: "POST" });
+    await loadChecklist(internacionId);
+    toast("Checklist instanciado.", "ok");
+  } catch (e) {
+    toast("No se pudo instanciar el checklist: " + e.message, "err");
+  }
+}
+
+async function ensureChecklist(internacionId) {
+  const current = state.checklistByInternacion[internacionId];
+  if (current !== undefined) return;
+  await loadChecklist(internacionId);
+  if (!state.checklistByInternacion[internacionId]?.length) {
+    await instantiateChecklist(internacionId);
+  }
+}
+
+async function completarPaso(pasoId, internacionId, camaId) {
+  try {
+    await api(`/camas/pasos/${pasoId}/completar`, {
+      method: "POST",
+      body: JSON.stringify({ rol: state.rol, actor_nombre: state.actorNombre.trim() || undefined }),
+    });
+    toast("Paso completado.", "ok");
+    await loadChecklist(internacionId);
+    await abrirDetalle(camaId);
+  } catch (e) {
+    toast(e.message, "err");
+  }
+}
+
+async function crearNotaCama(camaId, texto) {
+  if (!texto.trim()) { toast("La nota no puede quedar vacía.", "warn"); return; }
+  try {
+    await api(`/camas/${camaId}/notas`, {
+      method: "POST",
+      body: JSON.stringify({ texto: texto.trim(), rol: state.rol, actor_nombre: state.actorNombre.trim() || undefined }),
+    });
+    toast("Nota guardada.", "ok");
+    await abrirDetalle(camaId);
+  } catch (e) {
     toast(e.message, "err");
   }
 }
@@ -417,8 +482,10 @@ function renderDetalle() {
       d.estado_gestion === "BLOQUEADA" ? renderBloqueoInfo(d) : null,
       intern ? renderPacienteInfo(intern) : null,
       renderAccionesArea(d),
+      intern ? renderChecklist(intern, d) : null,
       renderHitos(d.hitos || []),
       renderNotas(d.notas || []),
+      renderNotaForm(d),
     ),
   );
 
@@ -615,6 +682,51 @@ function renderNotas(notas) {
     }
   }
   return el("div", {}, el("div", { class: "section-label" }, "Notas de la cama"), cont);
+}
+
+function renderChecklist(intern, cama) {
+  const pasos = state.checklistByInternacion[intern.id] || [];
+  const cont = el("div", { class: "checklist" });
+
+  if (pasos.length === 0) {
+    return el("div", {},
+      el("div", { class: "section-label" }, "Checklist de pre-alta"),
+      el("p", { class: "muted" }, "Aún no se ha instanciado un checklist para esta internación."),
+      el("button", { class: "btn btn-primary", type: "button", onClick: () => instantiateChecklist(intern.id) }, "Instanciar checklist"),
+    );
+  }
+
+  for (const paso of pasos) {
+    cont.append(el("div", { class: "check-row" },
+      el("div", { class: "check-box " + (paso.completado ? "cb-done" : "cb-pend") }, paso.completado ? "✓" : ""),
+      el("div", { class: "check-label" + (paso.completado ? " done" : "") },
+        paso.codigo ? `${paso.codigo}: ` : "", paso.nombre || "Paso sin descripción",
+        paso.era_bloqueante ? el("span", { class: "legal-tag" }, "Bloqueante") : null,
+      ),
+      !paso.completado ? el("button", { class: "btn btn-sm", type: "button", onClick: () => completarPaso(paso.id, intern.id, cama.id) }, "Completar") : null,
+    ));
+  }
+
+  const pendientes = pasos.filter((p) => !p.completado).length;
+  const hint = pendientes > 0
+    ? `Hay ${pendientes} paso(s) pendiente(s) antes de la alta física.`
+    : "Todos los pasos del checklist están completos.";
+
+  return el("div", {},
+    el("div", { class: "section-label" }, "Checklist de pre-alta"),
+    el("div", { class: "cg-locked" }, hint),
+    cont,
+  );
+}
+
+function renderNotaForm(cama) {
+  const textarea = el("textarea", { class: "note-ta", id: "nota-texto", placeholder: "Registrar una nota operativa sobre la cama..." });
+  const submit = el("button", { class: "btn btn-green", type: "button", onClick: () => crearNotaCama(cama.id, textarea.value) }, "Guardar nota");
+  return el("div", {},
+    el("div", { class: "section-label" }, "Nueva nota operativa"),
+    textarea,
+    el("div", { class: "action-foot" }, submit),
+  );
 }
 
 // Trampa de foco básica dentro del drawer (accesibilidad de diálogo modal).

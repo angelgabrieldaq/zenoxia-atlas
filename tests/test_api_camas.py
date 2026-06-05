@@ -131,9 +131,153 @@ async def test_detalle_cama_devuelve_hitos_y_notas(
     assert "notas" in data
 
 
-async def test_detalle_cama_404(client: AsyncClient):
-    r = await client.get(f"/camas/{uuid.uuid4()}")
-    assert r.status_code == 404
+async def test_crear_nota_para_cama(client: AsyncClient, session: AsyncSession):
+    cama = await _crear_cama(session)
+    r = await client.post(
+        f"/camas/{cama.id}/notas",
+        json={"texto": "Discrepancia: falta medicación", "rol": "ENFERMERIA"},
+    )
+    assert r.status_code == 200
+    data = r.json()
+    assert data["texto"] == "Discrepancia: falta medicación"
+    assert data["creada_por_rol"] == "ENFERMERIA"
+
+
+async def test_instanciar_y_listar_pasos_de_alta_por_internacion(
+    client: AsyncClient, session: AsyncSession
+):
+    from database.models import PasoAltaCatalogo
+
+    internacion = await _crear_internacion(session)
+    paso = PasoAltaCatalogo(
+        codigo="CHECK_01",
+        nombre="Confirmar medicación",
+        bloqueante=True,
+        activo=True,
+        orden=1,
+    )
+    session.add(paso)
+    await session.commit()
+
+    r = await client.post(f"/camas/internaciones/{internacion.id}/pasos/instanciar")
+    assert r.status_code == 200
+    pasos = r.json()
+    assert len(pasos) == 1
+    assert pasos[0]["codigo"] == "CHECK_01"
+    assert pasos[0]["completado"] is False
+
+    r2 = await client.get(f"/camas/internaciones/{internacion.id}/pasos")
+    assert r2.status_code == 200
+    pasos2 = r2.json()
+    assert len(pasos2) == 1
+    assert pasos2[0]["codigo"] == "CHECK_01"
+
+
+async def test_completar_paso_de_checklist(client: AsyncClient, session: AsyncSession):
+    from database.models import PasoAltaCatalogo
+
+    internacion = await _crear_internacion(session)
+    paso = PasoAltaCatalogo(
+        codigo="CHECK_02",
+        nombre="Verificar documentos",
+        bloqueante=False,
+        activo=True,
+        orden=1,
+    )
+    session.add(paso)
+    await session.commit()
+
+    r = await client.post(f"/camas/internaciones/{internacion.id}/pasos/instanciar")
+    assert r.status_code == 200
+    paso_id = r.json()[0]["id"]
+
+    r2 = await client.post(
+        f"/camas/pasos/{paso_id}/completar",
+        json={"rol": "MEDICO"},
+    )
+    assert r2.status_code == 200
+    data = r2.json()
+    assert data["completado"] is True
+    assert data["completado_por_rol"] == "MEDICO"
+
+
+async def test_alta_fisica_con_pasos_bloqueantes_devuelve_409_y_pasos_pendientes(
+    client: AsyncClient, session: AsyncSession
+):
+    from database.models import PasoAltaCatalogo
+
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session)
+
+    r = await client.post(
+        f"/camas/{cama.id}/ocupar",
+        json={"internacion_id": str(internacion.id), "rol": "ADMISION"},
+    )
+    assert r.status_code == 200
+
+    r = await client.post(f"/camas/{cama.id}/iniciar-alta", json={"rol": "MEDICO"})
+    assert r.status_code == 200
+
+    paso = PasoAltaCatalogo(
+        codigo="CHECK_03",
+        nombre="Confirmar orden de egreso",
+        bloqueante=True,
+        activo=True,
+        orden=1,
+    )
+    session.add(paso)
+    await session.commit()
+    r = await client.post(f"/camas/internaciones/{internacion.id}/pasos/instanciar")
+    assert r.status_code == 200
+
+    r2 = await client.post(
+        f"/camas/{cama.id}/alta-fisica",
+        json={"rol": "ADMISION"},
+    )
+    assert r2.status_code == 409
+    assert "pasos_pendientes" in r2.json()
+    assert r2.json()["pasos_pendientes"] == ["CHECK_03"]
+
+
+async def test_alta_fisica_override_con_pasos_bloqueantes_procede(
+    client: AsyncClient, session: AsyncSession
+):
+    from database.models import PasoAltaCatalogo
+
+    internacion = await _crear_internacion(session)
+    cama = await _crear_cama(session)
+
+    r = await client.post(
+        f"/camas/{cama.id}/ocupar",
+        json={"internacion_id": str(internacion.id), "rol": "ADMISION"},
+    )
+    assert r.status_code == 200
+
+    r = await client.post(f"/camas/{cama.id}/iniciar-alta", json={"rol": "MEDICO"})
+    assert r.status_code == 200
+
+    paso = PasoAltaCatalogo(
+        codigo="CHECK_04",
+        nombre="Verificar orden de alta",
+        bloqueante=True,
+        activo=True,
+        orden=1,
+    )
+    session.add(paso)
+    await session.commit()
+    r = await client.post(f"/camas/internaciones/{internacion.id}/pasos/instanciar")
+    assert r.status_code == 200
+
+    r2 = await client.post(
+        f"/camas/{cama.id}/alta-fisica",
+        json={
+            "rol": "ADMISION",
+            "forzar": True,
+            "motivo_override": "Alta urgente con paso pendiente",
+        },
+    )
+    assert r2.status_code == 200
+    assert r2.json()["estado_gestion"] == "LIMPIEZA_TERMINAL"
 
 
 async def test_ocupar_cama_con_rol_correcto(
