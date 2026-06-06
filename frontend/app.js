@@ -254,23 +254,35 @@ function renderDetalle() {
   if (!d) return;
   const intern = internOf(d);
 
-  const overlay = el("div", { class: "overlay open", onClick: cerrarDetalle });
-  const drawer = el("aside", { class: "drawer open" },
-    el("div", { class: "drawer-head" },
-      el("div", { class: "dh-av", style: "background:var(--p-light); color:var(--p-dark);" }, "🛏️"),
-      el("div", { class: "dh-info" }, el("div", { class: "dh-name" }, d.nombre), el("div", { class: "dh-sub" }, `${ESTADO_LABEL[d.estado_gestion]} · ${TIPO_LABEL[d.tipo] || d.tipo}`)),
-      el("button", { class: "drawer-close", onClick: cerrarDetalle }, "×")
-    ),
-    el("div", { class: "drawer-body" },
-      intern ? el("div", { class: "card" }, el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Paciente y cobertura")), el("div", { class: "card-body", style: "display:flex; flex-direction:column; gap:8px;" }, el("div", {}, el("strong", {}, "Paciente: "), nombrePaciente(intern)), el("div", {}, el("strong", {}, "DNI: "), intern.paciente_dni || "—"), el("div", {}, el("strong", {}, "Cobertura: "), intern.cobertura || "—"))) : null,
-      renderAccionesArea(d),
-      intern ? renderChecklist(intern, d) : null,
-      // --- AQUÍ ESTÁ LA MAGIA QUE FALTABA ---
-      renderHitos(d.hitos || []),
-      renderNotas(d.notas || [])
-      // --------------------------------------
-    )
-  );
+  // ... (tu código del drawer y overlay sigue igual hasta el drawer-body)
+
+  const drawerBody = el("div", { class: "drawer-body" });
+  
+  // Agregamos la info del paciente
+  if (intern) {
+    drawerBody.append(el("div", { class: "card" }, /* ... tu código existente ... */));
+  }
+  
+  drawerBody.append(renderAccionesArea(d));
+  if (intern) drawerBody.append(renderChecklist(intern, d));
+
+  // --- AQUÍ LA CORRECCIÓN: Creamos los elementos dinámicamente ---
+  const hitosCont = el("div", { class: "card" });
+  hitosCont.append(el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Traza de hitos")));
+  const hitosList = el("div", { class: "card-body" });
+  hitosCont.append(hitosList);
+  renderHitos(d.hitos || [], hitosList);
+  drawerBody.append(hitosCont);
+
+  const notasCont = el("div", { class: "card" });
+  notasCont.append(el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Notas de la cama")));
+  const notasList = el("div", { class: "card-body" });
+  notasCont.append(notasList);
+  renderNotas(d.notas || [], notasList);
+  drawerBody.append(notasCont);
+  // -----------------------------------------------------------
+
+  const drawer = el("aside", { class: "drawer open" }, /* ... tu header del drawer ... */, drawerBody);
   host.append(overlay, drawer);
 }
 
