@@ -229,17 +229,17 @@ function renderBoard() {
   }
 
   for (const [sector, camas] of sectores) {
-    const grid = el("div", { class: "bed-grid" });
+    const grid = el("div", { class: "cama-grid" });
     for (const c of camas) {
       const intern = internOf(c);
       const estado = { DISPONIBLE: "libre", OCUPADA: "ocup", RESERVADA: "demo", PROCESO_DE_ALTA: "alta", LIMPIEZA_TERMINAL: "limp", BLOQUEADA: "bloq" }[c.estado_gestion] || "libre";
       
-      const card = el("div", { class: `bed ${estado}`, onClick: () => abrirDetalle(c.id) },
-        el("div", { class: "bed-top" }, el("div", { class: "bed-num" }, c.nombre), el("div", { class: "bed-state-dot", style: `background: var(--cama-${estado === 'demo' ? 'demo' : estado})` })),
-        el("div", { class: `bed-status bst-${estado}`, style: "margin-bottom:6px;" }, ESTADO_LABEL[c.estado_gestion]),
-        c.estado_gestion === "BLOQUEADA" ? el("div", { class: "bed-espera" }, c.motivo_bloqueo || "Bloqueada") :
-        intern ? el("div", {}, el("div", { class: "bed-pac" }, nombrePaciente(intern)), el("div", { class: "bed-proc" }, cobLinea(intern))) :
-        el("div", { class: c.estado_gestion === "DISPONIBLE" ? "bed-libre-lbl" : "bed-proc" }, c.estado_gestion === "DISPONIBLE" ? "Disponible" : "Esperando limpieza")
+      const card = el("div", { class: `cama ${estado}`, onClick: () => abrirDetalle(c.id) },
+        el("div", { class: "cama-top" }, el("div", { class: "cama-num" }, c.nombre), el("div", { class: "cama-state-dot", style: `background: var(--cama-${estado === 'demo' ? 'demo' : estado})` })),
+        el("div", { class: `cama-status bst-${estado}`, style: "margin-bottom:6px;" }, ESTADO_LABEL[c.estado_gestion]),
+        c.estado_gestion === "BLOQUEADA" ? el("div", { class: "cama-espera" }, c.motivo_bloqueo || "Bloqueada") :
+        intern ? el("div", {}, el("div", { class: "cama-pac" }, nombrePaciente(intern)), el("div", { class: "cama-proc" }, cobLinea(intern))) :
+        el("div", { class: c.estado_gestion === "DISPONIBLE" ? "cama-libre-lbl" : "cama-proc" }, c.estado_gestion === "DISPONIBLE" ? "Disponible" : "Esperando limpieza")
       );
       grid.append(card);
     }
