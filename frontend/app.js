@@ -264,7 +264,11 @@ function renderDetalle() {
     el("div", { class: "drawer-body" },
       intern ? el("div", { class: "card" }, el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Paciente y cobertura")), el("div", { class: "card-body", style: "display:flex; flex-direction:column; gap:8px;" }, el("div", {}, el("strong", {}, "Paciente: "), nombrePaciente(intern)), el("div", {}, el("strong", {}, "DNI: "), intern.paciente_dni || "—"), el("div", {}, el("strong", {}, "Cobertura: "), intern.cobertura || "—"))) : null,
       renderAccionesArea(d),
-      intern ? renderChecklist(intern, d) : null
+      intern ? renderChecklist(intern, d) : null,
+      // --- AQUÍ ESTÁ LA MAGIA QUE FALTABA ---
+      renderHitos(d.hitos || []),
+      renderNotas(d.notas || [])
+      // --------------------------------------
     )
   );
   host.append(overlay, drawer);
@@ -328,3 +332,38 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("btn-refresh").addEventListener("click", cargarTablero);
   cargarTablero();
 });
+// --- FUNCIONES PARA RECUPERAR LA DATA PERDIDA ---
+
+function renderHitos(hitos, host) {
+  host.innerHTML = "";
+  if (!hitos || hitos.length === 0) {
+    host.innerHTML = '<p class="muted">Sin hitos registrados.</p>';
+    return;
+  }
+  const container = el("div", { class: "tl" });
+  hitos.forEach(h => {
+    container.append(el("div", { class: "tl-item" },
+      el("div", { class: "tl-lw" }, el("div", { class: "tl-dot", style: "background:var(--p)" }), el("div", { class: "tl-vert" })),
+      el("div", { class: "tl-body" },
+        el("div", { class: "tl-time" }, fmtFecha(h.registrado_at)),
+        el("div", { class: "tl-event" }, h.hito_codigo),
+        el("div", { class: "tl-who" }, `${h.actor_rol || ''} · ${h.actor_nombre || ''}`)
+      )
+    ));
+  });
+  host.append(container);
+}
+
+function renderNotas(notas, host) {
+  host.innerHTML = "";
+  if (!notas || notas.length === 0) {
+    host.innerHTML = '<p class="muted">Sin notas.</p>';
+    return;
+  }
+  notas.forEach(n => {
+    host.append(el("div", { class: "nota" },
+      el("div", { class: "nota-txt" }, n.texto),
+      el("div", { class: "nota-meta" }, `${fmtFecha(n.creada_at)} · ${n.creada_por_rol || ''}`)
+    ));
+  });
+}
