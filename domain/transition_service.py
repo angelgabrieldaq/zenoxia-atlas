@@ -176,6 +176,7 @@ class ServicioTransiciones:
         # Precondición de asignación (sin tocar la base): si la transición ASIGNA,
         # necesitamos una internación persistida.
         efecto = _EFECTO_INTERNACION[(origen, estado_destino)]
+        internacion_a_asignar: InternacionLocal | None = None
         if efecto is _EfectoInternacion.ASIGNA:
             if internacion is None:
                 raise ValueError(
@@ -187,16 +188,19 @@ class ServicioTransiciones:
                     "La internación a asignar debe estar persistida (tener id) "
                     "antes de vincularla a la cama."
                 )
+            internacion_a_asignar = internacion
 
         # 3-6. Escrituras. Con commit=True es una transacción atómica autónoma; con
         # commit=False el orquestador controla el commit/rollback de la transacción.
         try:
             internacion_previa_id = cama.internacion_actual_id
+            internacion_id_hito: uuid.UUID | None = None
 
             # 3. internacion_actual_id según la transición.
             if efecto is _EfectoInternacion.ASIGNA:
-                cama.internacion_actual_id = internacion.id
-                internacion_id_hito = internacion.id
+                assert internacion_a_asignar is not None
+                cama.internacion_actual_id = internacion_a_asignar.id
+                internacion_id_hito = internacion_a_asignar.id
             elif efecto is _EfectoInternacion.LIBERA:
                 cama.internacion_actual_id = None
                 internacion_id_hito = internacion_previa_id  # quién se liberó (auditoría)

@@ -17,5 +17,19 @@ services:
       timeout: 5s
       retries: 10
 
+  app:
+    build: .
+    container_name: atlas_app
+    depends_on:
+      - postgres
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: atlas
+      POSTGRES_USER: atlas
+      POSTGRES_PASSWORD: atlas
+      DATABASE_URL: postgresql+asyncpg://atlas:atlas@postgres:5432/atlas
+    ports:
+      - "8000:8000"
+
 volumes:
   atlas_postgres_data:

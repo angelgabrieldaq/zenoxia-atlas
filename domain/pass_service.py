@@ -150,6 +150,10 @@ class ServicioPases:
             )
 
         internacion = await session.get(InternacionLocal, pase.internacion_id)
+        if internacion is None:
+            raise ValueError(
+                f"Internación {pase.internacion_id} no encontrada al asignar la cama."
+            )
         try:
             # Reserva la destino SIN commitear (commit=False): queda flusheada, con id.
             reserva = await self._reservas.crear_reserva(
@@ -219,9 +223,25 @@ class ServicioPases:
         """
         self._exigir_estado(pase, EstadoPase.EN_TRASLADO)
         cama_destino = await session.get(CamaGestion, pase.cama_destino_id)
+        if cama_destino is None:
+            raise ValueError(
+                f"Cama destino {pase.cama_destino_id} no encontrada al cumplir pase."
+            )
         cama_origen = await session.get(CamaGestion, pase.cama_origen_id)
+        if cama_origen is None:
+            raise ValueError(
+                f"Cama origen {pase.cama_origen_id} no encontrada al cumplir pase."
+            )
         internacion = await session.get(InternacionLocal, pase.internacion_id)
+        if internacion is None:
+            raise ValueError(
+                f"Internación {pase.internacion_id} no encontrada al cumplir pase."
+            )
         reserva = await session.get(Reserva, pase.reserva_id)
+        if reserva is None:
+            raise ValueError(
+                f"Reserva {pase.reserva_id} no encontrada al cumplir pase."
+            )
 
         try:
             # a) DESTINO: RESERVADA → OCUPADA (re-vincula la internación). Sin commit.
@@ -282,6 +302,10 @@ class ServicioPases:
         # Si ya se había apartado la destino, liberarla (ServicioReservas → DISPONIBLE).
         if pase.reserva_id is not None:
             reserva = await session.get(Reserva, pase.reserva_id)
+            if reserva is None:
+                raise ValueError(
+                    f"Reserva {pase.reserva_id} no encontrada al cancelar pase."
+                )
             await self._reservas.cancelar_reserva(
                 session, reserva, motivo_cancelacion, rol, actor_nombre=actor_nombre
             )

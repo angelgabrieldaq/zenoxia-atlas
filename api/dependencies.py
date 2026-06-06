@@ -6,7 +6,6 @@ from typing import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from database.models import Base
 from domain.discharge_checklist_service import ServicioChecklistAlta
 from domain.note_service import ServicioNotas
 from domain.reservation_service import ServicioReservas

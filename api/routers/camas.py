@@ -32,7 +32,6 @@ from database.models import (
     CamaGestion,
     HitoAtlas,
     InternacionLocal,
-    NotaCama,
     PasoAltaCatalogo,
     PasoAltaInternacion,
     PaseServicio,
@@ -40,13 +39,8 @@ from database.models import (
 )
 from domain.discharge_checklist_service import ServicioChecklistAlta
 from domain.note_service import ServicioNotas
-from domain.reservation_service import ReservaTipoInvalido, ServicioReservas
-from domain.state_machine import TransicionInvalida
-from domain.transition_service import (
-    ReversionSinInternacion,
-    RolNoAutorizado,
-    ServicioTransiciones,
-)
+from domain.reservation_service import ServicioReservas
+from domain.transition_service import ServicioTransiciones
 
 router = APIRouter(prefix="/camas", tags=["camas"])
 

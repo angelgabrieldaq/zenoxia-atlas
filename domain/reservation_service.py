@@ -97,7 +97,15 @@ class ServicioReservas:
         """Marca la reserva CUMPLIDA y ocupa la cama (RESERVADA → OCUPADA vía B2),
         re-vinculando la internación de la reserva. Un solo commit."""
         cama = await session.get(CamaGestion, reserva.cama_gestion_id)
+        if cama is None:
+            raise ValueError(
+                f"Cama {reserva.cama_gestion_id} no encontrada al cumplir reserva."
+            )
         internacion = await session.get(InternacionLocal, reserva.internacion_id)
+        if internacion is None:
+            raise ValueError(
+                f"Internación {reserva.internacion_id} no encontrada al cumplir reserva."
+            )
         reserva.estado = EstadoReserva.CUMPLIDA
         reserva.resuelta_at = _ahora()
         try:
@@ -126,6 +134,10 @@ class ServicioReservas:
                 "por qué la cama no se ocupó."
             )
         cama = await session.get(CamaGestion, reserva.cama_gestion_id)
+        if cama is None:
+            raise ValueError(
+                f"Cama {reserva.cama_gestion_id} no encontrada al cancelar reserva."
+            )
         reserva.estado = EstadoReserva.CANCELADA
         reserva.resuelta_at = _ahora()
         reserva.motivo_cancelacion = motivo_cancelacion

@@ -6,6 +6,7 @@ sin levantar un servidor real. Cada test trunca las tablas relevantes para aisla
 
 import os
 import uuid
+from typing import AsyncGenerator
 
 import pytest
 import pytest_asyncio
@@ -44,7 +45,7 @@ _TABLAS = (
 
 
 @pytest_asyncio.fixture
-async def session() -> AsyncSession:
+async def session() -> AsyncGenerator[AsyncSession, None]:
     async with _session_factory() as s:
         await s.execute(
             text(
@@ -504,6 +505,7 @@ async def test_cancelar_reserva_guard_pase_devuelve_409(
     await session.refresh(destino)
     assert destino.estado_gestion == EstadoCamaGestion.RESERVADA
     reserva = await session.get(Reserva, pase.reserva_id)
+    assert reserva is not None
     await session.refresh(reserva)
     assert reserva.estado == EstadoReserva.ACTIVA
 
@@ -564,7 +566,9 @@ async def test_revertir_alta_temprana_por_error(
             .order_by(HitoAtlas.registrado_at.desc())
         )
     ).scalars().first()
+    assert hito is not None
     assert hito.hito_codigo == "ATLAS_ALTA_REVERTIDA_POR_ERROR"
+    assert isinstance(hito.metadata_evento, dict)
     assert hito.metadata_evento["tipo_reversion"] == "ALTA_INFORMADA_POR_ERROR"
     assert hito.metadata_evento["motivo_reversion"] == "El alta se cargó por error"
 
@@ -614,7 +618,9 @@ async def test_revertir_alta_tardia_reingreso_fisico(
             .order_by(HitoAtlas.registrado_at.desc())
         )
     ).scalars().first()
+    assert hito is not None
     assert hito.hito_codigo == "ATLAS_REINGRESO_FISICO"
+    assert isinstance(hito.metadata_evento, dict)
     assert hito.metadata_evento["tipo_reversion"] == "REINGRESO_FISICO"
 
 

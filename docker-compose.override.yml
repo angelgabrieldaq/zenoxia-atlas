@@ -1,0 +1,2 @@
+# docker-compose override is intentionally empty.
+# All service configuration is kept in docker-compose.yml.
