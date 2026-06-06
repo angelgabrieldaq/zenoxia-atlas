@@ -282,7 +282,7 @@ function renderDetalle() {
   drawerBody.append(notasCont);
   // -----------------------------------------------------------
 
-  const drawer = el("aside", { class: "drawer open" }, /* ... tu header del drawer ... */, drawerBody);
+  const drawer = el("aside", { class: "drawer open" }, /* ... tu header del drawer ... */ drawerBody);
   host.append(overlay, drawer);
 }
 
