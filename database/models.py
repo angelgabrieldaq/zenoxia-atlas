@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.ext.asyncio import AsyncAttrs
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -380,3 +380,201 @@ class PaseServicio(Base):
     cancelado_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+
+
+# ====================================================================== #
+# Egreso (Modelo de Egreso — Cerrado, docs/MODELO_EGRESO_CERRADO.md)
+#
+# `Egreso` es el plano de ESTADO del proceso de recambio de una cama (mutable):
+# anclas reales como NULL honesto hasta que el sub-evento ocurra. La AUDITORÍA
+# (append-only) la sella `HitoAtlas`/`HitoTiempo` en la capa de servicio — no en
+# esta etapa de entidades.
+#
+# Gobierna `cama_gestion.estado_gestion` (Opción A, §4 del doc): no agrega
+# estados ni transiciones nuevas a la máquina de la cama. El "limbo
+# admin-OK / paciente-presente" lo distingue `Egreso.estado` (proceso), no la
+# cama. Mantenimiento se resuelve vía el mecanismo existente de `BLOQUEADA`.
+#
+# FKs duras a entidades Atlas-locales (§3 del doc). El link al core lo llevan
+# `internacion_local.core_episodio_id` y `cama_gestion.core_location_id`; no se
+# duplica acá.
+# ====================================================================== #
+
+
+class Egreso(Base):
+    """Proceso de egreso/recambio de una cama (núcleo, §5 del doc).
+
+    Estado vigente del proceso: ``estado`` es la FSM del egreso
+    (info → bloqueado → egreso_admin → liberado). Los timestamps de sub-eventos
+    son NULL hasta que el evento ocurre de verdad; cada uno tiene su HitoAtlas
+    correspondiente cuando se sella (capa de servicio, no acá).
+
+    Invariante "un egreso activo por cama": índice único parcial sobre
+    ``cama_gestion_id`` donde ``estado != 'liberado'`` (§6.5 del doc)."""
+
+    __tablename__ = "egresos"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    internacion_local_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("internacion_local.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    cama_gestion_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("cama_gestion.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    # FSM del proceso. String libre (no Enum SQL) por la misma razón que
+    # HitoAtlas.hito_codigo: evolución sin migración de tipo. Validación de
+    # transiciones queda para la capa de servicio.
+    estado: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="info", index=True
+    )
+    # camina | ambulancia | derivacion | traslado_interno (string libre, evolucionable).
+    medio_egreso: Mapped[str] = mapped_column(String(30), nullable=False)
+    mantenimiento_requerido: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    # Anclas de eventos (NULL = todavía no pasó). `created_at` es la apertura
+    # del proceso (no nulo); los demás se setean cuando el sub-evento ocurre.
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    trabado_desde: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    egreso_admin_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    salida_fisica_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    __table_args__ = (
+        # Garantía a nivel DB: un egreso activo por cama (§6.5). El parcial
+        # libera el slot cuando el egreso pasa a `liberado` y permite el ciclo
+        # siguiente sobre la misma cama.
+        Index(
+            "uq_egreso_activo_por_cama",
+            "cama_gestion_id",
+            unique=True,
+            postgresql_where=text("estado IN ('info', 'bloqueado', 'egreso_admin')"),
+        ),
+    )
+
+
+class ItemChecklistEgreso(Base):
+    """Ítem del checklist de un egreso (médico/enfermería/admisión).
+
+    El esqueleto del ciclo: ``done=False, hora_marcado=NULL`` significa "todavía
+    no", no auditoría falsa. ``requerido_legal`` marca el ítem como condición
+    dura para el OK administrativo (§6.2)."""
+
+    __tablename__ = "item_checklist_egreso"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    egreso_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("egresos.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    # medico | enfermeria | admision (string libre, alineado con el doc).
+    responsable: Mapped[str] = mapped_column(String(40), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    requerido_legal: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    hora_marcado: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    autor: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
+
+class Discrepancia(Base):
+    """Discrepancia registrada durante el proceso de egreso (auditoría liviana
+    del proceso, §5 del doc).
+
+    El checklist médico no es bloqueo duro: cuando un ítem se omite, se anota
+    una discrepancia con motivo predefinido y nota libre opcional."""
+
+    __tablename__ = "discrepancias"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    egreso_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("egresos.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    # DISCREP_MOTIVOS predefinidos (catálogo en capa de servicio, no en SQL).
+    motivo: Mapped[str] = mapped_column(String(60), nullable=False)
+    nota: Mapped[str | None] = mapped_column(Text, nullable=True)
+    autor: Mapped[str] = mapped_column(String(100), nullable=False)
+    hora: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class NotaEgreso(Base):
+    """Reclamo / novedad operativa sobre el egreso (ambulancia que no llega,
+    derivación pendiente, etc.).
+
+    Distinto de ``NotaCama`` (nota libre sobre la cama, persistente entre
+    pacientes): la nota de egreso vive con el proceso."""
+
+    __tablename__ = "nota_egreso"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    egreso_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("egresos.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    # reclamo | novedad.
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False)
+    texto: Mapped[str] = mapped_column(Text, nullable=False)
+    autor: Mapped[str] = mapped_column(String(100), nullable=False)
+    hora: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ItemChecklistLimpieza(Base):
+    """Ítem del checklist de limpieza terminal post-salida física (§2.4 del doc).
+
+    Se instancian cuando se setea ``Egreso.salida_fisica_at`` (servicio). Cuando
+    todos pasan a ``done``, junto con el mantenimiento OK si
+    ``mantenimiento_requerido``, la cama puede transicionar
+    ``LIMPIEZA_TERMINAL → DISPONIBLE``."""
+
+    __tablename__ = "item_checklist_limpieza"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    egreso_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("egresos.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    hora_marcado: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    autor: Mapped[str | None] = mapped_column(String(100), nullable=True)
