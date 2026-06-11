@@ -26,8 +26,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database.enums import EstadoCamaGestion, TipoReversion
-from database.models import CamaGestion, HitoAtlas, InternacionLocal
+from database.models import CamaGestion, Egreso, HitoAtlas, InternacionLocal
 from domain.state_machine import RolOperativo, TransicionInvalida, validar_transicion
+
+# Estados activos del Egreso (matchea el índice único parcial de DB). La
+# constante vive acá por accesibilidad: el hook de reversión la usa para buscar
+# el egreso activo a marcar como ``revertido``. ``ServicioEgreso`` expone la
+# misma tupla bajo ``ESTADOS_ACTIVOS`` (ambas deben coincidir).
+_ESTADOS_EGRESO_ACTIVOS: tuple[str, ...] = ("info", "bloqueado", "egreso_admin")
 
 
 class RolNoAutorizado(Exception):
@@ -569,6 +575,27 @@ class ServicioTransiciones:
             )
         if internacion_a_reabrir is not None and internacion_a_reabrir.finalizada_at is not None:
             internacion_a_reabrir.finalizada_at = None
+
+        # Hook con ``Egreso``: si la cama tenía un Egreso activo (info /
+        # bloqueado / egreso_admin), pasa al terminal único ``revertido``. La
+        # decisión está cerrada: una reversión cancela el ciclo de egreso en
+        # curso (no hay "egreso en pausa"). El id del egreso revertido queda
+        # en metadata del hito de reversión para correlación.
+        egreso_activo = (await session.execute(
+            select(Egreso).where(
+                Egreso.cama_gestion_id == cama.id,
+                Egreso.estado.in_(_ESTADOS_EGRESO_ACTIVOS),
+            )
+        )).scalar_one_or_none()
+        if egreso_activo is not None:
+            egreso_activo.estado = "revertido"
+            # Reasignamos el dict (no mutamos in-place): el JSONB no está
+            # envuelto en MutableDict, así que SA solo detecta el cambio si la
+            # asignación es a un objeto nuevo.
+            hito.metadata_evento = {
+                **(hito.metadata_evento or {}),
+                "egreso_revertido_id": str(egreso_activo.id),
+            }
 
         if commit:
             try:
