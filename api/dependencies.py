@@ -7,6 +7,7 @@ from typing import AsyncGenerator
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from domain.discharge_checklist_service import ServicioChecklistAlta
+from domain.egreso_service import ServicioEgreso
 from domain.note_service import ServicioNotas
 from domain.reservation_service import ServicioReservas
 from domain.transition_service import ServicioTransiciones
@@ -35,6 +36,7 @@ _transiciones = ServicioTransiciones()
 _reservas = ServicioReservas(_transiciones)
 _checklist = ServicioChecklistAlta(_transiciones)
 _notas = ServicioNotas()
+_egreso = ServicioEgreso(_transiciones)
 
 
 def get_transiciones() -> ServicioTransiciones:
@@ -51,3 +53,7 @@ def get_checklist() -> ServicioChecklistAlta:
 
 def get_notas() -> ServicioNotas:
     return _notas
+
+
+def get_egreso() -> ServicioEgreso:
+    return _egreso

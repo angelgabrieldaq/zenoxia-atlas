@@ -188,6 +188,117 @@ class NotaCamaCreate(_RolBase):
 
 
 # ------------------------------------------------------------------ #
+# Egresos
+# ------------------------------------------------------------------ #
+
+class ItemChecklistEgresoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    label: str
+    responsable: str
+    requerido_legal: bool
+    done: bool
+    hora_marcado: datetime | None
+    autor: str | None
+
+
+class ItemChecklistLimpiezaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    label: str
+    done: bool
+    hora_marcado: datetime | None
+    autor: str | None
+
+
+class DiscrepanciaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    motivo: str
+    nota: str | None
+    autor: str
+    hora: datetime
+
+
+class NotaEgresoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    tipo: str
+    texto: str
+    autor: str
+    hora: datetime
+
+
+class EgresoOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    internacion_local_id: uuid.UUID
+    cama_gestion_id: uuid.UUID
+    estado: str
+    medio_egreso: str
+    mantenimiento_requerido: bool
+    created_at: datetime
+    trabado_desde: datetime | None
+    egreso_admin_at: datetime | None
+    salida_fisica_at: datetime | None
+
+
+class EgresoDetalleOut(EgresoOut):
+    items_checklist: list[ItemChecklistEgresoOut] = Field(default_factory=list)
+    discrepancias: list[DiscrepanciaOut] = Field(default_factory=list)
+    notas: list[NotaEgresoOut] = Field(default_factory=list)
+    limpieza_checklist: list[ItemChecklistLimpiezaOut] = Field(default_factory=list)
+    responsable_actual: dict | None = None
+    minutos_trabado: float | None = None
+
+
+class MarcarLimpiezaOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    label: str
+    done: bool
+    hora_marcado: datetime | None
+    autor: str | None
+    liberacion_bloqueada: str | None = None
+
+
+class CrearEgresoBody(_RolBase):
+    medio_egreso: str
+
+
+class MarcarItemChecklistBody(_RolBase):
+    no_aplica: bool = False
+
+
+class OkAdministrativoBody(_RolBase):
+    pass
+
+
+class ConfirmarSalidaFisicaBody(_RolBase):
+    metadata: dict | None = None
+
+
+class MarcarItemLimpiezaBody(_RolBase):
+    pass
+
+
+class RegistrarDiscrepanciaBody(_RolBase):
+    motivo: str
+    nota: str | None = None
+
+
+class AgregarNotaEgresoBody(_RolBase):
+    tipo: str
+    texto: str
+
+
+# ------------------------------------------------------------------ #
 # Respuesta de error estándar
 # ------------------------------------------------------------------ #
 

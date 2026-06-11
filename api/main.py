@@ -9,8 +9,19 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from api.routers import camas, internaciones
+from api.routers import camas, egresos, internaciones
 from domain.discharge_checklist_service import AltaConPasosPendientes
+from domain.egreso_service import (
+    ChecklistLegalIncompleto,
+    EgresoActivoYaExiste,
+    EgresoEnEstadoTerminal,
+    EgresoNoEncontrado,
+    ItemNoEncontrado,
+    ItemYaMarcado,
+    MedioEgresoDesconocido,
+    MotivoDiscrepanciaInvalido,
+    SalidaFisicaSinOkAdmin,
+)
 from domain.reservation_service import ReservaTipoInvalido
 from domain.state_machine import TransicionInvalida
 from domain.transition_service import ReversionSinInternacion, RolNoAutorizado
@@ -75,12 +86,65 @@ async def handle_value_error(request: Request, exc: ValueError):
     return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 
+# ─── Egresos ──────────────────────────────────────────────────────── #
+
+@app.exception_handler(EgresoNoEncontrado)
+async def handle_egreso_no_encontrado(request: Request, exc: EgresoNoEncontrado):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(ItemNoEncontrado)
+async def handle_item_no_encontrado(request: Request, exc: ItemNoEncontrado):
+    return JSONResponse(status_code=404, content={"detail": str(exc)})
+
+
+@app.exception_handler(EgresoActivoYaExiste)
+async def handle_egreso_activo_ya_existe(request: Request, exc: EgresoActivoYaExiste):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(EgresoEnEstadoTerminal)
+async def handle_egreso_en_estado_terminal(request: Request, exc: EgresoEnEstadoTerminal):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(ItemYaMarcado)
+async def handle_item_ya_marcado(request: Request, exc: ItemYaMarcado):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(SalidaFisicaSinOkAdmin)
+async def handle_salida_fisica_sin_ok_admin(request: Request, exc: SalidaFisicaSinOkAdmin):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(ChecklistLegalIncompleto)
+async def handle_checklist_legal_incompleto(request: Request, exc: ChecklistLegalIncompleto):
+    return JSONResponse(
+        status_code=409,
+        content={"detail": str(exc), "items_pendientes": exc.items_pendientes},
+    )
+
+
+@app.exception_handler(MedioEgresoDesconocido)
+async def handle_medio_egreso_desconocido(request: Request, exc: MedioEgresoDesconocido):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(MotivoDiscrepanciaInvalido)
+async def handle_motivo_discrepancia_invalido(
+    request: Request, exc: MotivoDiscrepanciaInvalido
+):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
 # ------------------------------------------------------------------ #
 # Routers
 # ------------------------------------------------------------------ #
 
 app.include_router(camas.router)
 app.include_router(internaciones.router)
+app.include_router(egresos.router)
 
 
 @app.get("/health", tags=["meta"])
