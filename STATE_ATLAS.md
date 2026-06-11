@@ -10,7 +10,7 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 
 | Dimensión | Estado |
 |---|---|
-| **Tests** | **193 pasando** — suite completa verde |
+| **Tests** | **209 pasando** — suite completa verde |
 | **Entorno** | Docker + PostgreSQL funcionando |
 | **Fase** | Capa 1 (gestión operativa del día) en producción |
 | **Backend** | FastAPI async + SQLAlchemy 2.0 + Alembic |
@@ -21,6 +21,7 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 ```
 tests/
 ├── test_api_camas.py
+├── test_api_egresos.py
 ├── test_discharge_catalog.py
 ├── test_discharge_checklist_service.py
 ├── test_discharge_responsibility.py
@@ -219,6 +220,7 @@ zenoxia-atlas/
 │   ├── dependencies.py
 │   └── routers/
 │       ├── camas.py
+│       ├── egresos.py
 │       └── internaciones.py
 ├── database/
 │   ├── models.py       ← entidades SQLAlchemy
@@ -245,23 +247,22 @@ zenoxia-atlas/
 
 ---
 
-## 7. PRÓXIMO PASO — Endpoints REST del egreso
+## 7. ENDPOINTS REST DEL EGRESO — Implementados
 
-`ServicioEgreso` ya existe y está completo. El trabajo pendiente son los **7 endpoints**
-que lo exponen como API (wrappers sobre el servicio):
+Los 8 endpoints están en `api/routers/egresos.py`, son wrappers finos sobre `ServicioEgreso`:
 
 ```
 POST   /internaciones/{id}/egreso          crea egreso, inicializa checklists según medio
-GET    /egreso/{id}                         egreso + computar_responsable() en vivo
-PATCH  /egreso/{id}/checklist/{item_id}     marca ítem done
-PATCH  /egreso/{id}/egreso_admin            setea egreso_admin_at (valida items legales)
-PATCH  /egreso/{id}/salida_fisica           setea salida_fisica_at → cama a LIMPIEZA_TERMINAL
-PATCH  /egreso/{id}/discrepancia            registra discrepancia
-POST   /egreso/{id}/nota                    agrega reclamo/novedad
+GET    /egresos/{id}                       egreso + computar_responsable() en vivo
+PATCH  /egresos/{id}/checklist/{item_id}   marca ítem checklist
+PATCH  /egresos/{id}/egreso-admin          ok administrativo (valida items legales)
+PATCH  /egresos/{id}/salida-fisica         salida física → cama a LIMPIEZA_TERMINAL
+PATCH  /egresos/{id}/limpieza/{item_id}    marca ítem limpieza (MantenimientoPendiente → 200)
+PATCH  /egresos/{id}/discrepancia          registra discrepancia
+POST   /egresos/{id}/notas                 agrega reclamo/novedad
 ```
 
-**Follow-up FSM:** aceptar `ENFERMERIA` (además de `ADMISION`) en la transición
-`PROCESO_DE_ALTA → LIMPIEZA_TERMINAL` en `state_machine.py` (deuda declarada).
+La deuda de FSM (`ENFERMERIA` en salida física) quedó cerrada en el mismo tramo.
 
 ---
 
