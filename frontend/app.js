@@ -202,9 +202,37 @@ async function recargarEgreso(internacionId) {
   catch (e) { if (e.status !== 404) toast(e.message, "err"); else state.egreso = null; }
 }
 
-async function marcarItemEgreso(egresoId, itemId, internacionId) {
+const _DISCREP_MOTIVOS = [
+  "ambulancia_demorada",
+  "familiar_ausente",
+  "documentacion_incompleta",
+  "cama_destino_no_disponible",
+  "paciente_se_niega",
+  "demora_responsable",
+  "otro",
+];
+
+function _pedirDiscrepancia() {
+  const lista = _DISCREP_MOTIVOS.join(", ");
+  const motivo = prompt(`Override ADMISION — motivo obligatorio:\n${lista}`);
+  if (motivo === null) return null;           // canceló
+  const m = motivo.trim();
+  if (!_DISCREP_MOTIVOS.includes(m)) {
+    toast(`Motivo inválido. Usá uno de: ${lista}`, "err");
+    return null;
+  }
+  const nota = prompt("Nota adicional (opcional — Enter para omitir):") ?? "";
+  return { motivo: m, nota: nota.trim() || null };
+}
+
+async function marcarItemEgreso(egresoId, itemId, internacionId, responsableItem) {
   const body = { rol: state.rol };
   if (state.actorNombre.trim()) body.actor_nombre = state.actorNombre.trim();
+  if (state.rol === "ADMISION" && responsableItem !== "admision") {
+    const disc = _pedirDiscrepancia();
+    if (disc === null) return;               // usuario canceló
+    body.discrepancia = disc;
+  }
   try {
     await api(`/egresos/${egresoId}/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(body) });
     await recargarEgreso(internacionId);
@@ -235,6 +263,11 @@ async function confirmarSalidaFisica(egresoId, camaId) {
 async function marcarItemLimpieza(egresoId, itemId, camaId) {
   const body = { rol: state.rol };
   if (state.actorNombre.trim()) body.actor_nombre = state.actorNombre.trim();
+  if (state.rol === "ADMISION") {
+    const disc = _pedirDiscrepancia();
+    if (disc === null) return;               // usuario canceló
+    body.discrepancia = disc;
+  }
   try {
     const r = await api(`/egresos/${egresoId}/limpieza/${itemId}`, { method: "PATCH", body: JSON.stringify(body) });
     if (r.liberacion_bloqueada === "mantenimiento_pendiente") toast("Limpieza OK. Pendiente: mantenimiento.", "warn");
@@ -295,7 +328,7 @@ function renderEgresoPanel(egreso, intern, cama) {
           item.requerido_legal ? el("span", { style: "color:var(--err); font-size:11px; margin-left:4px;" }, "legal") : null,
         ),
         !item.done
-          ? el("button", { class: "btn-sm", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id) }, "Marcar")
+          ? el("button", { class: "btn-sm", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable) }, "Marcar")
           : el("span", { class: "ri-meta" }, item.autor || ""),
       ));
     }
