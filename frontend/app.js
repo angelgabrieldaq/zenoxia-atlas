@@ -58,7 +58,6 @@ const ACCIONES = {
 const initialState = {
   camas: [],
   internacionesById: {},
-  checklistByInternacion: {},
   rol: "ADMISION",
   actorNombre: "",
   detalle: null,
@@ -71,7 +70,6 @@ const initialState = {
 const RENDERERS = {
   camas:            () => { renderResumen(); renderBoard(); },
   internacionesById:() => { renderResumen(); renderBoard(); renderDetalle(); },
-  checklistByInternacion: () => { renderDetalle(); },
   rol:              () => { renderDetalle(); },
   actorNombre:      () => {},
   detalle:          () => { renderDetalle(); },
@@ -187,22 +185,6 @@ async function ejecutar(camaId, accionId, payload) {
     await cargarTablero();
     await abrirDetalle(camaId);
   } catch (e) { toast(e.message, "err"); }
-}
-
-async function loadChecklist(internacionId) {
-  try { state.checklistByInternacion = { ...state.checklistByInternacion, [internacionId]: await api(`/camas/internaciones/${internacionId}/pasos`) }; } catch (e) {}
-}
-
-async function instantiateChecklist(internacionId) {
-  try { await api(`/camas/internaciones/${internacionId}/pasos/instanciar`, { method: "POST" }); await loadChecklist(internacionId); } catch (e) {}
-}
-
-async function ensureChecklist(internacionId) {
-  if (!state.checklistByInternacion[internacionId]) { await loadChecklist(internacionId); if (!state.checklistByInternacion[internacionId]?.length) await instantiateChecklist(internacionId); }
-}
-
-async function completarPaso(pasoId, internacionId, camaId) {
-  try { await api(`/camas/pasos/${pasoId}/completar`, { method: "POST", body: JSON.stringify({ rol: state.rol, actor_nombre: state.actorNombre.trim() || undefined }) }); await loadChecklist(internacionId); await abrirDetalle(camaId); } catch (e) { toast(e.message, "err"); }
 }
 
 async function crearEgreso(internacionId, camaId, medioEgreso) {
@@ -326,11 +308,10 @@ function renderEgresoPanel(egreso, intern, cama) {
       if (todosDone) {
         body.append(el("button", { class: "btn-primary", onClick: () => darOkAdmin(egreso.id, intern.id) }, "OK Administrativo"));
       }
-    } else if (estado === "egreso_admin") {
+    } else if (estado === "egreso_admin" && !egreso.salida_fisica_at) {
       body.append(el("button", { class: "btn-primary", onClick: () => confirmarSalidaFisica(egreso.id, cama.id) }, "Confirmar Salida Física"));
     }
-  } else if (estado === "egreso_admin") {
-    // sin items pendientes, directo al botón
+  } else if (estado === "egreso_admin" && !egreso.salida_fisica_at) {
     body.append(el("button", { class: "btn-primary", onClick: () => confirmarSalidaFisica(egreso.id, cama.id) }, "Confirmar Salida Física"));
   }
 
@@ -532,24 +513,6 @@ function renderAccionesArea(d) {
   }
   wrap.append(cont);
   return wrap;
-}
-
-function renderChecklist(intern, cama) {
-  const pasos = state.checklistByInternacion[intern.id] || [];
-  const cont = el("div", { class: "check-group" });
-  cont.append(el("div", { class: "cg-head cg-medico" }, el("div", {}, "Checklist de Alta"), el("div", {}, `${pasos.filter(p => p.completado).length}/${pasos.length}`)));
-  
-  const body = el("div", { class: "cg-body" });
-  if (!pasos.length) body.append(el("button", { class: "btn-sm", onClick: () => instantiateChecklist(intern.id) }, "Instanciar checklist"));
-  for (const p of pasos) {
-    body.append(el("div", { class: "check-row" },
-      el("div", { class: `check-box ${p.completado ? 'cb-done' : 'cb-pend'}` }, p.completado ? "✓" : ""),
-      el("div", { class: "check-label" }, p.nombre),
-      !p.completado ? el("button", { class: "btn-sm", onClick: () => completarPaso(p.id, intern.id, cama.id) }, "Completar") : null
-    ));
-  }
-  cont.append(body);
-  return cont;
 }
 
 function renderToast() {
