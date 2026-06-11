@@ -30,6 +30,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://atlas:atlas@postgres:5432/atlas
     ports:
       - "8000:8000"
+    volumes:
+      - ./:/app
 
 volumes:
   atlas_postgres_data:

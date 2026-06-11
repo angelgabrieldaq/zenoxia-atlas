@@ -3,10 +3,10 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 
 # Instala dependencias del sistema y pip
-COPY requirements.txt .
+COPY requirements.txt requirements-dev.txt ./
 RUN apt-get update && \
         apt-get install -y --no-install-recommends gcc libpq-dev && \
-        pip install --no-cache-dir -r requirements.txt && \
+        pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && \
         apt-get remove -y gcc && \
         apt-get autoremove -y && \
         rm -rf /var/lib/apt/lists/*
