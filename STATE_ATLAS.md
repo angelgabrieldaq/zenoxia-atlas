@@ -10,11 +10,11 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 
 | Dimensión | Estado |
 |---|---|
-| **Tests** | **209 pasando** — suite completa verde |
+| **Tests** | **215 pasando** — suite completa verde |
 | **Entorno** | Docker + PostgreSQL funcionando |
 | **Fase** | Capa 1 (gestión operativa del día) en producción |
 | **Backend** | FastAPI async + SQLAlchemy 2.0 + Alembic |
-| **Migraciones** | 10 versiones aplicadas (hasta `e8546bf` — egreso y satélites) |
+| **Migraciones** | 11 versiones aplicadas (hasta `3504e9c` — uq_egreso_activo_por_internacion) |
 
 ### 1.1 Archivos de tests (11 módulos)
 
@@ -123,8 +123,8 @@ una ambulancia que no llegó. La cama no puede declararse libre hasta que el pac
 se vaya físicamente. Atlas modela ese intervalo que el HIS comprime a cero.
 
 > **Quién confirma la salida física:** ENFERMERÍA (nivel 3 de la cascada de
-> `computar_responsable`). La transición FSM se invoca internamente con rol
-> `ADMISION` fijo — deuda declarada: aceptar `ENFERMERIA` en la FSM, pendiente.
+> `computar_responsable`). La FSM acepta tanto `ADMISION` como `ENFERMERIA`
+> en la transición `PROCESO_DE_ALTA → LIMPIEZA_TERMINAL` (deuda cerrada en commit 1ddd46a).
 
 ### 3.2 Regla del responsable computado
 
@@ -240,8 +240,8 @@ zenoxia-atlas/
 ├── sync/
 │   ├── core_sync.py    ← interfaz de sincronización con zenoxia-core
 │   └── noop_sync.py    ← stub para tests sin core
-├── alembic/            ← 10 migraciones aplicadas
-├── tests/              ← 193 tests pasando
+├── alembic/            ← 11 migraciones aplicadas
+├── tests/              ← 215 tests pasando
 └── docs/               ← documentación de diseño
 ```
 
@@ -262,7 +262,18 @@ PATCH  /egresos/{id}/discrepancia          registra discrepancia
 POST   /egresos/{id}/notas                 agrega reclamo/novedad
 ```
 
-La deuda de FSM (`ENFERMERIA` en salida física) quedó cerrada en el mismo tramo.
+La deuda de FSM (`ENFERMERIA` en salida física) quedó cerrada en commit 1ddd46a.
+
+**Seguridad de roles en dominio (commit 4faca30):**
+- `marcar_item`: lanza `RolNoAutorizado` (→ 403) si `rol != item.responsable`
+- `ok_administrativo`: solo `ADMISION`
+- `marcar_item_limpieza`: solo `LIMPIEZA` u `HOTELERIA`
+
+**Endpoint adicional (3a):**
+```
+GET /internaciones/{id}/egreso-activo   discovery del egreso activo por internación
+```
+Más índice único parcial `uq_egreso_activo_por_internacion` en `egresos(internacion_local_id)`.
 
 ---
 
