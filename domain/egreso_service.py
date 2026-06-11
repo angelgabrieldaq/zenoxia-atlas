@@ -336,14 +336,8 @@ class ServicioEgreso:
             _HITO_SALIDA_FISICA, meta,
         ))
 
-        # Transición de cama dentro de la misma transacción (commit=False). La
-        # FSM exige rol ADMISION para PROCESO_DE_ALTA → LIMPIEZA_TERMINAL (LOCKED
-        # del STATE_ATLAS: no se toca state_machine.py). El rol real del actor
-        # (típicamente ENFERMERIA — la salida física la ejecuta enfermería per
-        # commit 1 / cascada del responsable) ya quedó sellado en el hito de
-        # servicio (ATLAS_SALIDA_FISICA) líneas arriba.
         await self._transiciones.dar_alta_fisica(
-            session, cama, RolOperativo.ADMISION,
+            session, cama, rol,
             actor_nombre=actor_nombre, commit=False,
         )
         await session.commit()

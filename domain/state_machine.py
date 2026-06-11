@@ -73,8 +73,8 @@ TRANSICIONES: tuple[Transicion, ...] = (
     Transicion(
         origen=EstadoCamaGestion.PROCESO_DE_ALTA,
         destino=EstadoCamaGestion.LIMPIEZA_TERMINAL,
-        roles=frozenset({RolOperativo.ADMISION}),
-        nota="el alta física la da Admisión; Hotelería/Limpieza ejecutan el trabajo",
+        roles=frozenset({RolOperativo.ADMISION, RolOperativo.ENFERMERIA}),
+        nota="salida física: Enfermería confirma la partida del paciente (cascada nivel 3); Admisión también autorizado",
     ),
     Transicion(
         origen=EstadoCamaGestion.LIMPIEZA_TERMINAL,

@@ -117,8 +117,7 @@ ROLES_ESPERADOS = {
     (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.OCUPADA): {RolOperativo.ENFERMERIA},
     (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.DISPONIBLE): {RolOperativo.ADMISION},
     (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.PROCESO_DE_ALTA): {RolOperativo.MEDICO},
-    # Alta física → limpieza: la dispara Admisión, no Hotelería
-    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL): {RolOperativo.ADMISION},
+    (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL): {RolOperativo.ADMISION, RolOperativo.ENFERMERIA},
     (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.DISPONIBLE): {RolOperativo.LIMPIEZA},
     (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.BLOQUEADA): {RolOperativo.MANTENIMIENTO},
     (EstadoCamaGestion.BLOQUEADA, EstadoCamaGestion.DISPONIBLE): {RolOperativo.MANTENIMIENTO},
@@ -144,3 +143,22 @@ def test_no_falta_ni_sobra_ninguna_asignacion_de_rol_en_los_tests():
     pares_tabla = {(t.origen, t.destino) for t in TRANSICIONES}
     pares_tests = set(ROLES_ESPERADOS.keys())
     assert pares_tabla == pares_tests
+
+
+# --- Deuda declarada cerrada: salida física acepta {ADMISION, ENFERMERIA} ---
+
+def test_salida_fisica_acepta_admision_y_enfermeria():
+    t = validar_transicion(
+        EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL
+    )
+    assert RolOperativo.ADMISION in t.roles
+    assert RolOperativo.ENFERMERIA in t.roles
+
+
+def test_salida_fisica_rechaza_otros_roles():
+    t = validar_transicion(
+        EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL
+    )
+    assert RolOperativo.MEDICO not in t.roles
+    assert RolOperativo.HOTELERIA not in t.roles
+    assert RolOperativo.LIMPIEZA not in t.roles
