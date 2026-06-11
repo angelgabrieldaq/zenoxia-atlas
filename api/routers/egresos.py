@@ -129,6 +129,28 @@ def _build_detalle(
     )
 
 
+@router.get("/internaciones/{internacion_id}/egreso-activo", response_model=EgresoDetalleOut)
+async def egreso_activo(
+    internacion_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+):
+    egreso = (
+        await session.execute(
+            select(Egreso).where(
+                Egreso.internacion_local_id == internacion_id,
+                Egreso.estado.in_(["info", "bloqueado", "egreso_admin"]),
+            )
+        )
+    ).scalar_one_or_none()
+    if egreso is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No hay egreso activo para la internación {internacion_id}.",
+        )
+    items, items_limpieza, discrepancias, notas = await _cargar_colecciones(session, egreso.id)
+    return _build_detalle(egreso, items, items_limpieza, discrepancias, notas)
+
+
 @router.post(
     "/internaciones/{internacion_id}/egreso",
     response_model=EgresoOut,

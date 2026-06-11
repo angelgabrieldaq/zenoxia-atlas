@@ -419,3 +419,50 @@ async def test_limpieza_bloqueada_por_mantenimiento(
     # El egreso NO pasó a liberado (cama sigue en LIMPIEZA_TERMINAL)
     det_final = (await client.get(f"/egresos/{egreso_id}")).json()
     assert det_final["estado"] != "liberado"
+
+
+# ------------------------------------------------------------------ #
+# GET /internaciones/{id}/egreso-activo
+# ------------------------------------------------------------------ #
+
+async def test_get_egreso_activo_ok(client: AsyncClient, session: AsyncSession):
+    _, internacion = await _crear_setup(session)
+    egreso = await _crear_egreso(client, internacion.id)
+
+    r = await client.get(f"/internaciones/{internacion.id}/egreso-activo")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["id"] == egreso["id"]
+    assert data["estado"] == "info"
+    assert "items_checklist" in data
+    assert "responsable_actual" in data
+
+
+async def test_get_egreso_activo_sin_egreso_404(client: AsyncClient, session: AsyncSession):
+    _, internacion = await _crear_setup(session)
+
+    r = await client.get(f"/internaciones/{internacion.id}/egreso-activo")
+    assert r.status_code == 404
+
+
+async def test_get_egreso_activo_liberado_no_cuenta_404(
+    client: AsyncClient, session: AsyncSession
+):
+    _, internacion = await _crear_setup(session)
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+
+    # Salida física → cama a LIMPIEZA_TERMINAL
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+
+    # Marcar todos los ítems de limpieza → egreso pasa a 'liberado'
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    for item in det["limpieza_checklist"]:
+        await client.patch(
+            f"/egresos/{egreso_id}/limpieza/{item['id']}",
+            json={"rol": "LIMPIEZA"},
+        )
+
+    # Egreso liberado no debe aparecer como activo
+    r = await client.get(f"/internaciones/{internacion.id}/egreso-activo")
+    assert r.status_code == 404
