@@ -302,7 +302,7 @@ function renderEgresoPanel(egreso, intern, cama) {
     const isDelayed = egreso.minutos_trabado > 120;
     body.append(el("div", { class: isDelayed ? "alert-box" : "wait-box", style: "margin:0;" },
       `Esperando: ${rol.toUpperCase()} — ${tarea}`,
-      isDelayed ? ` ⚠ Hace ${Math.round(egreso.minutos_trabado)} min` : "",
+      isDelayed ? el("span", { class: "num" }, ` ⚠ Hace ${Math.round(egreso.minutos_trabado)} min`) : "",
     ));
   }
 
@@ -317,7 +317,7 @@ function renderEgresoPanel(egreso, intern, cama) {
     const done = egreso.items_checklist.filter(i => i.done).length;
     grp.append(el("div", { class: "cg-head cg-medico" },
       el("div", {}, "Checklist de egreso"),
-      el("div", {}, `${done}/${egreso.items_checklist.length}`),
+      el("div", { class: "num" }, `${done}/${egreso.items_checklist.length}`),
     ));
     const gbody = el("div", { class: "cg-body" });
     for (const item of egreso.items_checklist) {
@@ -328,7 +328,7 @@ function renderEgresoPanel(egreso, intern, cama) {
           item.requerido_legal ? el("span", { style: "color:var(--err); font-size:11px; margin-left:4px;" }, "legal") : null,
         ),
         !item.done
-          ? el("button", { class: "btn-sm", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable) }, "Marcar")
+          ? el("button", { class: "btn-sm tap", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable) }, "Marcar")
           : el("span", { class: "ri-meta" }, item.autor || ""),
       ));
     }
@@ -354,7 +354,7 @@ function renderEgresoPanel(egreso, intern, cama) {
     const done = egreso.limpieza_checklist.filter(i => i.done).length;
     grp.append(el("div", { class: "cg-head cg-medico" },
       el("div", {}, "Limpieza terminal"),
-      el("div", {}, `${done}/${egreso.limpieza_checklist.length}`),
+      el("div", { class: "num" }, `${done}/${egreso.limpieza_checklist.length}`),
     ));
     const gbody = el("div", { class: "cg-body" });
     for (const item of egreso.limpieza_checklist) {
@@ -362,7 +362,7 @@ function renderEgresoPanel(egreso, intern, cama) {
         el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
         el("div", { class: "check-label" }, item.label),
         !item.done
-          ? el("button", { class: "btn-sm", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar")
+          ? el("button", { class: "btn-sm tap", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar")
           : el("span", { class: "ri-meta" }, item.autor || ""),
       ));
     }
