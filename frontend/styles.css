@@ -307,6 +307,8 @@ input::placeholder { color: var(--txt3); }
 .drawer-body {
   padding: var(--pad-md);
   overflow-y: auto;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: var(--gap-lg);
@@ -376,6 +378,71 @@ legend { font-size: var(--text-sm); font-weight: var(--fw-semibold); color: var(
 .nota-meta { font-size: var(--text-xs); color: var(--txt3); margin-top: 2px; }
 
 .muted { color: var(--txt3); font-size: var(--text-sm); font-style: italic; }
+
+/* ───────────────────────── Checklist de egreso / limpieza ───────────────────────── */
+
+.check-group {
+  border: 1px solid var(--brd2);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+
+.cg-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: var(--pad-xs);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-semibold);
+  background: var(--bg2);
+  border-bottom: 1px solid var(--brd);
+  color: var(--txt2);
+}
+
+.cg-body { display: flex; flex-direction: column; }
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+  padding: var(--pad-xs);
+  border-bottom: 1px solid var(--brd);
+}
+.check-row:last-child { border-bottom: none; }
+
+.check-box {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-md);
+  font-weight: var(--fw-bold);
+}
+.cb-pend {
+  border: 2px solid var(--brd2);
+  background: var(--bg);
+}
+.cb-done {
+  background: var(--s-ok-l);
+  border: 2px solid var(--s-ok-m);
+  color: var(--s-ok);
+}
+
+.check-label {
+  flex: 1;
+  font-size: var(--text-sm);
+  color: var(--txt);
+  line-height: 1.3;
+}
+
+.ri-meta {
+  font-size: var(--text-xs);
+  color: var(--txt3);
+  white-space: nowrap;
+}
 
 /* ───────────────────────── Toasts ───────────────────────── */
 
