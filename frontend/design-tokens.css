@@ -284,21 +284,18 @@
   --sla-amb-l: #e6f1fb;
   --sla-amb-m: #b5d4f4;
 
-  /* ─────────────────────────────────────────────────────────────
-     12. TIPOGRAFÍA
-  ───────────────────────────────────────────────────────────── */
-
+  /* 12. TIPOGRAFÍA (Escala Clínica Optimizada) */
   --font-sans: system-ui, -apple-system, sans-serif;
   --font-mono: "Courier New", Courier, monospace;
 
-  --text-2xs: 8px;
-  --text-xs: 10px;
-  --text-sm: 11px;
-  --text-md: 13px;
-  --text-lg: 15px;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-md: 14px;
+  --text-lg: 16px;
   --text-xl: 18px;
-  --text-2xl: 22px;
-  --text-3xl: 28px;
+  --text-2xl: 24px;
+  --text-3xl: 32px;
 
   --fw-normal: 400;
   --fw-medium: 500;

@@ -5,57 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Panel de Episodio — Atlas · Zenoxia</title>
     <link rel="stylesheet" href="design-tokens.css" />
-    <style>
-      :root {
-        --p-light: #ebf2ff;
-        --p-mid: #a3c0f8;
-        --p: #2b57d9;
-        --p-dark: #1a3faa;
-        --bg: #ffffff;
-        --bg2: #f5f4f0;
-        --bg3: #f0efea;
-        --txt: #1a1a18;
-        --txt2: #5f5e5a;
-        --txt3: #888780;
-        --brd: rgba(0, 0, 0, 0.1);
-        --brd2: rgba(0, 0, 0, 0.18);
-        --s-ok: #0f6e56;
-        --s-ok-l: #e1f5ee;
-        --s-ok-m: #9fe1cb;
-        --s-warn: #633806;
-        --s-warn-l: #faeeda;
-        --s-warn-m: #ef9f27;
-        --s-err: #791f1f;
-        --s-err-l: #fcebeb;
-        --s-err-m: #e24b4a;
-        --s-info: #0c447c;
-        --s-info-l: #e6f1fb;
-        --s-info-m: #b5d4f4;
-        --cama-libre: #0f6e56;
-        --cama-libre-l: #e1f5ee;
-        --cama-libre-m: #9fe1cb;
-        --cama-ocup: #1a3faa;
-        --cama-ocup-l: #ebf2ff;
-        --cama-ocup-m: #a3c0f8;
-        --cama-alta: #7b3fa0;
-        --cama-alta-l: #f3e8ff;
-        --cama-alta-m: #c9a0e0;
-        --cama-limp: #b45309;
-        --cama-limp-l: #fef3c7;
-        --cama-limp-m: #fcd34d;
-        --cama-demo: #dc2626;
-        --cama-demo-l: #fee2e2;
-        --cama-demo-m: #f87171;
-        --tr-curso: #2b57d9;
-        --tr-curso-l: #ebf2ff;
-        --tr-curso-m: #a3c0f8;
-        --font-sans: system-ui, -apple-system, sans-serif;
-        --r-xs: 4px;
-        --r: 8px;
-        --r-lg: 12px;
-        --r-xl: 16px;
-        --r-full: 999px;
-      }
+
       * {
         box-sizing: border-box;
         margin: 0;
@@ -261,7 +211,7 @@
         margin-bottom: 6px;
       }
       .cama-num {
-        font-size: 12px;
+        font-size: var(--text-xl);
         font-weight: 600;
         color: var(--txt);
       }
@@ -270,30 +220,37 @@
         height: 8px;
         border-radius: 50%;
       }
-      .cama-pac {
-        font-size: 11px;
-        font-weight: 500;
-        color: var(--txt);
-        margin-bottom: 2px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-      }
-      .cama-proc {
-        font-size: 9px;
-        color: var(--txt3);
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        margin-bottom: 6px;
-      }
-      .cama-status {
-        font-size: 9px;
-        padding: 2px 7px;
-        border-radius: 8px;
-        font-weight: 500;
-        display: inline-block;
-      }
+
+      /* Nombre del paciente: Sube a texto medio para evitar errores de lectura */
+.cama-pac {
+  font-size: var(--text-md);
+  font-weight: 500;
+  color: var(--txt);
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Procedimiento: Sube a texto pequeño para evitar fatiga visual */
+.cama-proc {
+  font-size: var(--text-sm);
+  color: var(--txt3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: var(--gap-xs);
+}
+
+/* Status (Badge): Sube a texto muy pequeño (lo mínimo aceptable en clínica) */
+.cama-status {
+  font-size: var(--text-2xs);
+  padding: 2px 7px;
+  border-radius: var(--r-full); /* Usamos el token de radio completo */
+  font-weight: 500;
+  display: inline-block;
+}
+
       .bst-libre {
         background: var(--cama-libre-l);
         color: var(--cama-libre);
