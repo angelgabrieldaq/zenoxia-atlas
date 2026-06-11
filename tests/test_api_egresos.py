@@ -466,3 +466,61 @@ async def test_get_egreso_activo_liberado_no_cuenta_404(
     # Egreso liberado no debe aparecer como activo
     r = await client.get(f"/internaciones/{internacion.id}/egreso-activo")
     assert r.status_code == 404
+
+
+# ------------------------------------------------------------------ #
+# PASO 1 — Seguridad: rol incorrecto debe ser rechazado con 403
+# ------------------------------------------------------------------ #
+
+async def test_checklist_item_rol_incorrecto_403(
+    client: AsyncClient, session: AsyncSession
+):
+    """MEDICO no puede marcar un item cuyo responsable es 'admision'."""
+    _, internacion = await _crear_setup(session)
+    # "camina" tiene un item de 'admision': "Verificación administrativa y cobertura"
+    egreso = await _crear_egreso(client, internacion.id, "camina")
+    det = (await client.get(f"/egresos/{egreso['id']}")).json()
+
+    item_admision = next(
+        (i for i in det["items_checklist"] if i["responsable"] == "admision"),
+        None,
+    )
+    assert item_admision is not None, "No se encontró item de admision en el catálogo"
+
+    r = await client.patch(
+        f"/egresos/{egreso['id']}/checklist/{item_admision['id']}",
+        json={"rol": "MEDICO"},
+    )
+    assert r.status_code == 403
+
+
+async def test_ok_admin_rol_medico_403(client: AsyncClient, session: AsyncSession):
+    """Solo ADMISION puede dar el OK administrativo; MEDICO debe ser rechazado con 403."""
+    _, internacion = await _crear_setup(session)
+    egreso = await _crear_egreso(client, internacion.id)
+    det = (await client.get(f"/egresos/{egreso['id']}")).json()
+    await _marcar_todos_items(client, det)
+
+    r = await client.patch(
+        f"/egresos/{egreso['id']}/egreso-admin",
+        json={"rol": "MEDICO"},
+    )
+    assert r.status_code == 403
+
+
+async def test_limpieza_item_rol_medico_403(client: AsyncClient, session: AsyncSession):
+    """MEDICO no puede marcar items de limpieza terminal; debe ser rechazado con 403."""
+    _, internacion = await _crear_setup(session)
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    item_limpieza = det["limpieza_checklist"][0]
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{item_limpieza['id']}",
+        json={"rol": "MEDICO"},
+    )
+    assert r.status_code == 403

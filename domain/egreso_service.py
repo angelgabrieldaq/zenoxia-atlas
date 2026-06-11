@@ -44,7 +44,7 @@ from database.models import (
 )
 from domain.discharge_catalog import CATALOGO_CHECKLIST_EGRESO, DISCREP_MOTIVOS
 from domain.state_machine import RolOperativo
-from domain.transition_service import ServicioTransiciones
+from domain.transition_service import RolNoAutorizado, ServicioTransiciones
 
 # Hitos del egreso (string libre, catálogo §11 del diseño técnico).
 _HITO_EGRESO_INICIADO = "ATLAS_EGRESO_INICIADO"
@@ -232,6 +232,11 @@ class ServicioEgreso:
             raise ItemNoEncontrado(
                 f"Item {item_id} no pertenece al egreso {egreso_id}."
             )
+        if item.responsable != rol.value.lower():
+            raise RolNoAutorizado(
+                f"El item '{item.label}' es responsabilidad de '{item.responsable}'; "
+                f"el rol '{rol.value}' no puede marcarlo."
+            )
         if item.done:
             raise ItemYaMarcado(
                 f"El item '{item.label}' ya estaba marcado como done."
@@ -271,6 +276,11 @@ class ServicioEgreso:
         """Valida que todos los items ``requerido_legal=True`` estén done,
         setea ``egreso_admin_at`` y ``estado='egreso_admin'``. Atómico con
         ``ATLAS_EGRESO_ADMIN``."""
+        if rol != RolOperativo.ADMISION:
+            raise RolNoAutorizado(
+                f"Solo ADMISION puede dar el OK administrativo; "
+                f"rol actual: '{rol.value}'."
+            )
         egreso = await self._cargar_egreso_activo(session, egreso_id)
 
         items = await self._listar_items(session, egreso.id)
@@ -361,6 +371,11 @@ class ServicioEgreso:
         antes de la liberación (lanza ``MantenimientoPendiente``: la cama queda
         en LIMPIEZA_TERMINAL hasta que se resuelva, sin transiciones nuevas en
         la FSM)."""
+        if rol not in (RolOperativo.LIMPIEZA, RolOperativo.HOTELERIA):
+            raise RolNoAutorizado(
+                f"Solo LIMPIEZA u HOTELERIA pueden marcar items de limpieza terminal; "
+                f"rol actual: '{rol.value}'."
+            )
         egreso = await self._cargar_egreso_activo(session, egreso_id)
         item = await session.get(ItemChecklistLimpieza, item_id)
         if item is None or item.egreso_id != egreso.id:
