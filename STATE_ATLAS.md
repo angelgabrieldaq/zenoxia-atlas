@@ -10,7 +10,7 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 
 | Dimensión | Estado |
 |---|---|
-| **Tests** | **215 pasando** — suite completa verde |
+| **Tests** | **218 pasando** — suite completa verde |
 | **Entorno** | Docker + PostgreSQL funcionando |
 | **Fase** | Capa 1 (gestión operativa del día) en producción |
 | **Backend** | FastAPI async + SQLAlchemy 2.0 + Alembic |
@@ -241,7 +241,7 @@ zenoxia-atlas/
 │   ├── core_sync.py    ← interfaz de sincronización con zenoxia-core
 │   └── noop_sync.py    ← stub para tests sin core
 ├── alembic/            ← 11 migraciones aplicadas
-├── tests/              ← 215 tests pasando
+├── tests/              ← 218 tests pasando
 └── docs/               ← documentación de diseño
 ```
 
@@ -264,10 +264,15 @@ POST   /egresos/{id}/notas                 agrega reclamo/novedad
 
 La deuda de FSM (`ENFERMERIA` en salida física) quedó cerrada en commit 1ddd46a.
 
-**Seguridad de roles en dominio (commit 4faca30):**
-- `marcar_item`: lanza `RolNoAutorizado` (→ 403) si `rol != item.responsable`
-- `ok_administrativo`: solo `ADMISION`
-- `marcar_item_limpieza`: solo `LIMPIEZA` u `HOTELERIA`
+**Seguridad de roles en dominio (commits 4faca30 + 51b4665):**
+- `marcar_item`: tres ramas —
+  - `rol == item.responsable` → OK normal
+  - `rol == ADMISION` + `item.responsable != 'admision'` + discrepancia `{motivo, nota}` → override permitido; persiste `Discrepancia` con `actor_rol=ADMISION` + hito `ATLAS_EGRESO_DISCREPANCIA`
+  - `rol == ADMISION` sin discrepancia → `RolNoAutorizado` 403 ("requiere motivo")
+  - cualquier otro rol distinto al responsable → `RolNoAutorizado` 403
+- `ok_administrativo`: solo `ADMISION` (sin override)
+- `marcar_item_limpieza`: mismo patrón de tres ramas (`LIMPIEZA`/`HOTELERIA` normales; `ADMISION` con discrepancia)
+- Motivo nuevo en `DISCREP_MOTIVOS`: `"demora_responsable"` — para uso en overrides
 
 **Endpoint adicional (3a):**
 ```
