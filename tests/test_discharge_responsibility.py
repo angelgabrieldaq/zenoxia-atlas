@@ -107,25 +107,39 @@ def test_admin_con_derivacion_devuelve_prestador_externo():
     assert r.rol == "prestador_externo"
 
 
-def test_admin_con_camina_devuelve_admision_confirmar_salida():
+def test_admin_con_defuncion_devuelve_prestador_externo_cocheria():
+    """Defunción delega el retiro físico a la cochería (prestador externo);
+    la tarea cambia respecto de ambulancia/derivación."""
+    e = _egreso(
+        medio_egreso="defuncion",
+        egreso_admin_at="2026-06-10T13:00",
+    )
+    assert computar_responsable(e) == Responsable(
+        "prestador_externo", "Retiro del óbito por cochería"
+    )
+
+
+def test_admin_con_camina_devuelve_enfermeria_confirmar_salida():
+    """El egreso físico lo ejecuta enfermería (revisión clínica + prototipo +
+    protocolo del sanatorio); admisión conserva el OK administrativo previo."""
     e = _egreso(
         medio_egreso="camina",
         egreso_admin_at="2026-06-10T13:00",
     )
     assert computar_responsable(e) == Responsable(
-        "admision", "Confirmar salida física del paciente"
+        "enfermeria", "Confirmar salida física del paciente"
     )
 
 
-def test_admin_con_traslado_interno_devuelve_admision_confirmar_salida():
-    """traslado_interno NO está en la lista de prestador externo → admisión."""
+def test_admin_con_traslado_interno_devuelve_enfermeria_confirmar_salida():
+    """traslado_interno NO está en la lista de prestador externo → enfermería."""
     e = _egreso(
         medio_egreso="traslado_interno",
         egreso_admin_at="2026-06-10T13:00",
     )
-    r = computar_responsable(e)
-    assert r is not None
-    assert r.rol == "admision"
+    assert computar_responsable(e) == Responsable(
+        "enfermeria", "Confirmar salida física del paciente"
+    )
 
 
 # ------------------------------------------------------------------ #

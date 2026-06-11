@@ -38,8 +38,9 @@ _PRIORIDAD_CHECKLIST = ("medico", "enfermeria", "admision")
 
 # Medios de egreso que delegan el último tramo a un tercero. Si el medio es
 # uno de estos y ya hay OK administrativo, la pelota la tiene el prestador
-# externo hasta que llegue (la salida física la confirma admisión cuando ocurre).
-_MEDIOS_CON_PRESTADOR_EXTERNO = frozenset({"ambulancia", "derivacion"})
+# externo hasta que llegue (la salida física la confirma enfermería cuando
+# ocurre, salvo en defunción donde el retiro lo ejecuta la cochería).
+_MEDIOS_CON_PRESTADOR_EXTERNO = frozenset({"ambulancia", "derivacion", "defuncion"})
 
 
 def computar_responsable(egreso) -> Responsable | None:
@@ -51,7 +52,13 @@ def computar_responsable(egreso) -> Responsable | None:
        (la cama está a un paso de DISPONIBLE; el guard de mantenimiento lo
        cierra arriba).
     3. OK administrativo dado pero sin salida física → prestador externo si el
-       medio es ambulancia/derivación, admisión si el paciente se va caminando.
+       medio es ambulancia/derivación/defunción (con tarea específica para
+       defunción: retiro por cochería); enfermería si el paciente se va por sus
+       medios (camina, traslado_interno). El egreso físico — sacar al paciente
+       de la habitación — lo ejecuta enfermería en la operación real; admisión
+       conserva el OK administrativo previo. Convergen tres fuentes operativas
+       independientes en este punto (revisión clínica + tablero del prototipo +
+       protocolo del sanatorio), por eso lo movimos de 'admision' a 'enfermeria'.
     4. Checklist de egreso con pendientes → primer rol por prioridad
        (médico → enfermería → admisión) sobre su primer ítem pendiente.
     5. Checklist completo y sin OK administrativo → admisión para dar el OK
@@ -69,11 +76,13 @@ def computar_responsable(egreso) -> Responsable | None:
 
     if egreso.egreso_admin_at is not None:
         if egreso.medio_egreso in _MEDIOS_CON_PRESTADOR_EXTERNO:
-            return Responsable(
-                "prestador_externo",
-                "Confirmar llegada de ambulancia/traslado",
+            tarea = (
+                "Retiro del óbito por cochería"
+                if egreso.medio_egreso == "defuncion"
+                else "Confirmar llegada de ambulancia/traslado"
             )
-        return Responsable("admision", "Confirmar salida física del paciente")
+            return Responsable("prestador_externo", tarea)
+        return Responsable("enfermeria", "Confirmar salida física del paciente")
 
     for rol in _PRIORIDAD_CHECKLIST:
         for item in egreso.items_checklist:
