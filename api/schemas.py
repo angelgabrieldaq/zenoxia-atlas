@@ -272,8 +272,15 @@ class CrearEgresoBody(_RolBase):
     medio_egreso: str
 
 
+class _DiscrepanciaOverride(BaseModel):
+    """Discrepancia inline para el override de ADMISION en checklist/limpieza."""
+    motivo: str
+    nota: str | None = None
+
+
 class MarcarItemChecklistBody(_RolBase):
     no_aplica: bool = False
+    discrepancia: _DiscrepanciaOverride | None = None
 
 
 class OkAdministrativoBody(_RolBase):
@@ -285,7 +292,7 @@ class ConfirmarSalidaFisicaBody(_RolBase):
 
 
 class MarcarItemLimpiezaBody(_RolBase):
-    pass
+    discrepancia: _DiscrepanciaOverride | None = None
 
 
 class RegistrarDiscrepanciaBody(_RolBase):

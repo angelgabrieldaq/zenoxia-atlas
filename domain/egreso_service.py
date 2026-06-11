@@ -223,20 +223,44 @@ class ServicioEgreso:
         rol: RolOperativo,
         actor_nombre: str | None = None,
         metadata: dict | None = None,
+        discrepancia: dict | None = None,
     ) -> ItemChecklistEgreso:
-        """Marca un item del checklist como done. Guard: no se puede re-marcar
-        (idempotencia explícita, no silenciosa)."""
+        """Marca un item del checklist como done.
+
+        * ``rol == item.responsable``: flujo normal.
+        * ``rol == ADMISION`` y ``item.responsable != 'admision'``: override
+          permitido **solo** si se acompaña de ``discrepancia {motivo, nota}``.
+          Se persiste la Discrepancia con ``actor_rol=ADMISION`` (nunca el rol
+          suplantado).  Sin discrepancia: ``RolNoAutorizado``.
+        * Cualquier otro rol distinto al responsable: ``RolNoAutorizado``.
+
+        Guard de idempotencia: re-marcar lanza ``ItemYaMarcado``.
+        """
         egreso = await self._cargar_egreso_activo(session, egreso_id)
         item = await session.get(ItemChecklistEgreso, item_id)
         if item is None or item.egreso_id != egreso.id:
             raise ItemNoEncontrado(
                 f"Item {item_id} no pertenece al egreso {egreso_id}."
             )
-        if item.responsable != rol.value.lower():
-            raise RolNoAutorizado(
-                f"El item '{item.label}' es responsabilidad de '{item.responsable}'; "
-                f"el rol '{rol.value}' no puede marcarlo."
-            )
+
+        es_override = item.responsable != rol.value.lower()
+        if es_override:
+            if rol != RolOperativo.ADMISION:
+                raise RolNoAutorizado(
+                    f"El item '{item.label}' es responsabilidad de '{item.responsable}'; "
+                    f"el rol '{rol.value}' no puede marcarlo."
+                )
+            if discrepancia is None:
+                raise RolNoAutorizado(
+                    f"El item '{item.label}' es responsabilidad de '{item.responsable}'; "
+                    f"el override de ADMISION requiere un motivo de discrepancia."
+                )
+            if discrepancia["motivo"] not in DISCREP_MOTIVOS:
+                raise MotivoDiscrepanciaInvalido(
+                    f"motivo '{discrepancia['motivo']}' inválido. "
+                    f"Permitidos: {list(DISCREP_MOTIVOS)}."
+                )
+
         if item.done:
             raise ItemYaMarcado(
                 f"El item '{item.label}' ya estaba marcado como done."
@@ -259,6 +283,23 @@ class ServicioEgreso:
             egreso, cama, None, rol, actor_nombre,
             _HITO_CHECKLIST_ITEM, meta,
         ))
+
+        if es_override and discrepancia is not None:
+            disc = Discrepancia(
+                egreso_id=egreso.id,
+                motivo=discrepancia["motivo"],
+                nota=discrepancia.get("nota"),
+                autor=_autor(rol, actor_nombre),
+            )
+            session.add(disc)
+            await session.flush()
+            session.add(self._hito(
+                egreso, cama, None, rol, actor_nombre,
+                _HITO_DISCREPANCIA,
+                {"discrepancia_id": str(disc.id), "motivo": discrepancia["motivo"],
+                 "override_item": str(item.id)},
+            ))
+
         await session.commit()
         return item
 
@@ -364,18 +405,38 @@ class ServicioEgreso:
         item_id: uuid.UUID,
         rol: RolOperativo,
         actor_nombre: str | None = None,
+        discrepancia: dict | None = None,
     ) -> ItemChecklistLimpieza:
         """Marca un item de limpieza done; si TODOS quedan done, libera el
         Egreso (``estado='liberado'``) y transiciona ``LIMPIEZA_TERMINAL →
-        DISPONIBLE``, todo en una transacción. Guard de mantenimiento aplica
-        antes de la liberación (lanza ``MantenimientoPendiente``: la cama queda
-        en LIMPIEZA_TERMINAL hasta que se resuelva, sin transiciones nuevas en
-        la FSM)."""
-        if rol not in (RolOperativo.LIMPIEZA, RolOperativo.HOTELERIA):
-            raise RolNoAutorizado(
-                f"Solo LIMPIEZA u HOTELERIA pueden marcar items de limpieza terminal; "
-                f"rol actual: '{rol.value}'."
-            )
+        DISPONIBLE``, todo en una transacción.
+
+        * Roles normales: LIMPIEZA, HOTELERIA.
+        * Override ADMISION con ``discrepancia {motivo, nota}``: permitido.
+          Sin discrepancia: ``RolNoAutorizado``.
+        * Cualquier otro rol: ``RolNoAutorizado``.
+
+        Guard de mantenimiento: si todos done y ``mantenimiento_requerido=True``
+        lanza ``MantenimientoPendiente`` (Opción A: sin transiciones nuevas en FSM).
+        """
+        _roles_normales = (RolOperativo.LIMPIEZA, RolOperativo.HOTELERIA)
+        es_override = rol not in _roles_normales
+        if es_override:
+            if rol != RolOperativo.ADMISION:
+                raise RolNoAutorizado(
+                    f"Solo LIMPIEZA u HOTELERIA pueden marcar items de limpieza terminal; "
+                    f"rol actual: '{rol.value}'."
+                )
+            if discrepancia is None:
+                raise RolNoAutorizado(
+                    "El override de ADMISION en limpieza requiere un motivo de discrepancia."
+                )
+            if discrepancia["motivo"] not in DISCREP_MOTIVOS:
+                raise MotivoDiscrepanciaInvalido(
+                    f"motivo '{discrepancia['motivo']}' inválido. "
+                    f"Permitidos: {list(DISCREP_MOTIVOS)}."
+                )
+
         egreso = await self._cargar_egreso_activo(session, egreso_id)
         item = await session.get(ItemChecklistLimpieza, item_id)
         if item is None or item.egreso_id != egreso.id:
@@ -397,6 +458,22 @@ class ServicioEgreso:
             _HITO_LIMPIEZA_ITEM,
             {"item_id": str(item.id), "label": item.label},
         ))
+
+        if es_override and discrepancia is not None:
+            disc = Discrepancia(
+                egreso_id=egreso.id,
+                motivo=discrepancia["motivo"],
+                nota=discrepancia.get("nota"),
+                autor=_autor(rol, actor_nombre),
+            )
+            session.add(disc)
+            await session.flush()
+            session.add(self._hito(
+                egreso, cama, None, rol, actor_nombre,
+                _HITO_DISCREPANCIA,
+                {"discrepancia_id": str(disc.id), "motivo": discrepancia["motivo"],
+                 "override_item_limpieza": str(item.id)},
+            ))
         await session.flush()
 
         items_limpieza = await self._listar_items_limpieza(session, egreso.id)

@@ -524,3 +524,81 @@ async def test_limpieza_item_rol_medico_403(client: AsyncClient, session: AsyncS
         json={"rol": "MEDICO"},
     )
     assert r.status_code == 403
+
+
+# ------------------------------------------------------------------ #
+# Override de ADMISION con discrepancia
+# ------------------------------------------------------------------ #
+
+async def test_admision_override_checklist_sin_discrepancia_403(
+    client: AsyncClient, session: AsyncSession
+):
+    """ADMISION sin discrepancia no puede marcar item de otro responsable."""
+    _, internacion = await _crear_setup(session)
+    egreso = await _crear_egreso(client, internacion.id, "camina")
+    det = (await client.get(f"/egresos/{egreso['id']}")).json()
+
+    item_medico = next(i for i in det["items_checklist"] if i["responsable"] == "medico")
+
+    r = await client.patch(
+        f"/egresos/{egreso['id']}/checklist/{item_medico['id']}",
+        json={"rol": "ADMISION"},  # sin discrepancia
+    )
+    assert r.status_code == 403
+
+
+async def test_admision_override_checklist_con_discrepancia_200(
+    client: AsyncClient, session: AsyncSession
+):
+    """ADMISION con discrepancia válida puede marcar item de otro responsable.
+    POST-condición: GET egreso muestra item done con autor ADMISION + discrepancia registrada."""
+    _, internacion = await _crear_setup(session)
+    egreso = await _crear_egreso(client, internacion.id, "camina")
+    egreso_id = egreso["id"]
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+
+    item_medico = next(i for i in det["items_checklist"] if i["responsable"] == "medico")
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/checklist/{item_medico['id']}",
+        json={
+            "rol": "ADMISION",
+            "actor_nombre": "María Admisión",
+            "discrepancia": {"motivo": "demora_responsable", "nota": "Médico de guardia demorado"},
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["done"] is True
+    assert r.json()["autor"] == "María Admisión"
+
+    # Verificar que la discrepancia fue persistida
+    det2 = (await client.get(f"/egresos/{egreso_id}")).json()
+    item_actualizado = next(i for i in det2["items_checklist"] if i["id"] == item_medico["id"])
+    assert item_actualizado["done"] is True
+    assert item_actualizado["autor"] == "María Admisión"
+    assert len(det2["discrepancias"]) == 1
+    assert det2["discrepancias"][0]["motivo"] == "demora_responsable"
+
+
+async def test_admision_override_limpieza_con_discrepancia_200(
+    client: AsyncClient, session: AsyncSession
+):
+    """ADMISION con discrepancia puede marcar item de limpieza terminal."""
+    _, internacion = await _crear_setup(session)
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    item_limpieza = det["limpieza_checklist"][0]
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{item_limpieza['id']}",
+        json={
+            "rol": "ADMISION",
+            "discrepancia": {"motivo": "demora_responsable", "nota": "Personal de limpieza no disponible"},
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["done"] is True

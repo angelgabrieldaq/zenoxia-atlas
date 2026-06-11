@@ -88,5 +88,6 @@ DISCREP_MOTIVOS: tuple[str, ...] = (
     "documentacion_incompleta",
     "cama_destino_no_disponible",
     "paciente_se_niega",
+    "demora_responsable",   # override de ADMISION: el responsable del item se demoró
     "otro",
 )

@@ -204,9 +204,10 @@ async def marcar_item_checklist(
     egreso_svc: ServicioEgreso = Depends(get_egreso),
 ):
     metadata = {"no_aplica": True} if body.no_aplica else None
+    discrepancia = body.discrepancia.model_dump() if body.discrepancia else None
     item = await egreso_svc.marcar_item(
         session, egreso_id, item_id, body.rol,
-        actor_nombre=body.actor_nombre, metadata=metadata,
+        actor_nombre=body.actor_nombre, metadata=metadata, discrepancia=discrepancia,
     )
     return ItemChecklistEgresoOut.model_validate(item)
 
@@ -250,8 +251,10 @@ async def marcar_item_limpieza(
     egreso_svc: ServicioEgreso = Depends(get_egreso),
 ):
     try:
+        discrepancia = body.discrepancia.model_dump() if body.discrepancia else None
         item = await egreso_svc.marcar_item_limpieza(
-            session, egreso_id, item_id, body.rol, actor_nombre=body.actor_nombre,
+            session, egreso_id, item_id, body.rol,
+            actor_nombre=body.actor_nombre, discrepancia=discrepancia,
         )
         return MarcarLimpiezaOut.model_validate(item)
     except MantenimientoPendiente:
