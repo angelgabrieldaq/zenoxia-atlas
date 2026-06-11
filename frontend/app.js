@@ -27,6 +27,14 @@ const ESTADO_PLURAL = {
 };
 const TIPO_LABEL = { CAMA_INTERNACION: "Internación", UTI: "UTI", UCO: "UCO" };
 
+const MEDIOS_EGRESO = [
+  { value: "camina",           label: "Camina" },
+  { value: "ambulancia",       label: "Ambulancia" },
+  { value: "derivacion",       label: "Derivación" },
+  { value: "traslado_interno", label: "Traslado interno" },
+  { value: "defuncion",        label: "Defunción" },
+];
+
 const ACCIONES = {
   DISPONIBLE: [
     { id: "ocupar",   label: "Ocupar",   rol: "ADMISION",      needs: "internacion" },
@@ -40,12 +48,8 @@ const ACCIONES = {
   RESERVADA: [
     { id: "ocupar", label: "Ocupar reserva", rol: "ENFERMERIA", needs: "internacion-actual" },
   ],
-  PROCESO_DE_ALTA: [
-    { id: "alta-fisica", label: "Alta física", rol: "ADMISION" },
-  ],
-  LIMPIEZA_TERMINAL: [
-    { id: "finalizar-limpieza", label: "Finalizar limpieza", rol: "LIMPIEZA" },
-  ],
+  PROCESO_DE_ALTA:   [],
+  LIMPIEZA_TERMINAL: [],
   BLOQUEADA: [
     { id: "desbloquear", label: "Desbloquear", rol: "MANTENIMIENTO" },
   ],
@@ -61,6 +65,7 @@ const initialState = {
   pendingAction: null,
   toast: null,
   loading: false,
+  egreso: null,
 };
 
 const RENDERERS = {
@@ -73,6 +78,7 @@ const RENDERERS = {
   pendingAction:    () => { renderDetalle(); },
   toast:            () => { renderToast(); },
   loading:          () => { renderResumen(); },
+  egreso:           () => { renderDetalle(); },
 };
 
 const state = new Proxy({ ...initialState }, {
@@ -147,8 +153,12 @@ async function abrirDetalle(camaId) {
     const detalle = await api("/camas/" + camaId);
     state.pendingAction = null;
     state.detalle = detalle;
+    state.egreso = null;
     const intern = internOf(detalle);
-    if (intern && detalle.estado_gestion === "PROCESO_DE_ALTA") await ensureChecklist(intern.id);
+    if (intern && ["PROCESO_DE_ALTA", "LIMPIEZA_TERMINAL"].includes(detalle.estado_gestion)) {
+      try { state.egreso = await api(`/internaciones/${intern.id}/egreso-activo`); }
+      catch (e) { if (e.status !== 404) toast(e.message, "err"); }
+    }
   } catch (e) { toast(e.message, "err"); }
 }
 
@@ -195,9 +205,203 @@ async function completarPaso(pasoId, internacionId, camaId) {
   try { await api(`/camas/pasos/${pasoId}/completar`, { method: "POST", body: JSON.stringify({ rol: state.rol, actor_nombre: state.actorNombre.trim() || undefined }) }); await loadChecklist(internacionId); await abrirDetalle(camaId); } catch (e) { toast(e.message, "err"); }
 }
 
+async function crearEgreso(internacionId, camaId, medioEgreso) {
+  const body = { medio_egreso: medioEgreso, rol: state.rol };
+  if (state.actorNombre.trim()) body.actor_nombre = state.actorNombre.trim();
+  try {
+    await api(`/internaciones/${internacionId}/egreso`, { method: "POST", body: JSON.stringify(body) });
+    toast("Egreso creado.", "ok");
+    state.egreso = await api(`/internaciones/${internacionId}/egreso-activo`);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function recargarEgreso(internacionId) {
+  try { state.egreso = await api(`/internaciones/${internacionId}/egreso-activo`); }
+  catch (e) { if (e.status !== 404) toast(e.message, "err"); else state.egreso = null; }
+}
+
+async function marcarItemEgreso(egresoId, itemId, internacionId) {
+  const body = { rol: state.rol };
+  if (state.actorNombre.trim()) body.actor_nombre = state.actorNombre.trim();
+  try {
+    await api(`/egresos/${egresoId}/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(body) });
+    await recargarEgreso(internacionId);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function darOkAdmin(egresoId, internacionId) {
+  const body = { rol: state.rol };
+  if (state.actorNombre.trim()) body.actor_nombre = state.actorNombre.trim();
+  try {
+    await api(`/egresos/${egresoId}/egreso-admin`, { method: "PATCH", body: JSON.stringify(body) });
+    toast("OK administrativo registrado.", "ok");
+    await recargarEgreso(internacionId);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function confirmarSalidaFisica(egresoId, camaId) {
+  const body = { rol: state.rol };
+  if (state.actorNombre.trim()) body.actor_nombre = state.actorNombre.trim();
+  try {
+    await api(`/egresos/${egresoId}/salida-fisica`, { method: "PATCH", body: JSON.stringify(body) });
+    toast("Salida física confirmada.", "ok");
+    await cargarTablero();
+    await abrirDetalle(camaId);
+  } catch (e) { toast(e.message, "err"); }
+}
+
+async function marcarItemLimpieza(egresoId, itemId, camaId) {
+  const body = { rol: state.rol };
+  if (state.actorNombre.trim()) body.actor_nombre = state.actorNombre.trim();
+  try {
+    const r = await api(`/egresos/${egresoId}/limpieza/${itemId}`, { method: "PATCH", body: JSON.stringify(body) });
+    if (r.liberacion_bloqueada === "mantenimiento_pendiente") toast("Limpieza OK. Pendiente: mantenimiento.", "warn");
+    await cargarTablero();
+    await abrirDetalle(camaId);
+  } catch (e) { toast(e.message, "err"); }
+}
+
 function internacionesLibres() {
   const ocupadas = new Set(state.camas.map((c) => c.internacion_actual_id).filter(Boolean));
   return Object.values(state.internacionesById).filter((i) => !i.finalizada_at && !ocupadas.has(i.id));
+}
+
+function renderEgresoPanel(egreso, intern, cama) {
+  const wrap = el("div", { class: "card" });
+  const estado = egreso.estado;
+
+  // Header con estado y responsable actual
+  const badgeColor = { info: "var(--p)", bloqueado: "var(--warn)", egreso_admin: "var(--ok)", liberado: "var(--ok)" }[estado] || "var(--p)";
+  const estadoLabel = { info: "En proceso", bloqueado: "Bloqueado", egreso_admin: "Admin OK", liberado: "Liberado" }[estado] || estado;
+  const head = el("div", { class: "card-head" },
+    el("div", { class: "card-title" }, "Egreso"),
+    el("span", { style: `background:${badgeColor}20; color:${badgeColor}; padding:2px 8px; border-radius:4px; font-size:12px;` }, estadoLabel),
+  );
+  wrap.append(head);
+
+  const body = el("div", { class: "card-body", style: "display:flex; flex-direction:column; gap:12px;" });
+
+  // Responsable actual
+  if (egreso.responsable_actual) {
+    const { rol, tarea } = egreso.responsable_actual;
+    const isDelayed = egreso.minutos_trabado > 120;
+    body.append(el("div", { class: isDelayed ? "alert-box" : "wait-box", style: "margin:0;" },
+      `Esperando: ${rol.toUpperCase()} — ${tarea}`,
+      isDelayed ? ` ⚠ Hace ${Math.round(egreso.minutos_trabado)} min` : "",
+    ));
+  }
+
+  // Medio de egreso
+  body.append(el("div", { style: "font-size:13px; color:var(--txt-2);" },
+    el("strong", {}, "Medio: "), egreso.medio_egreso,
+  ));
+
+  // Checklist de egreso (estados pre-salida-fisica)
+  if (["info", "bloqueado", "egreso_admin"].includes(estado) && egreso.items_checklist?.length) {
+    const grp = el("div", { class: "check-group" });
+    const done = egreso.items_checklist.filter(i => i.done).length;
+    grp.append(el("div", { class: "cg-head cg-medico" },
+      el("div", {}, "Checklist de egreso"),
+      el("div", {}, `${done}/${egreso.items_checklist.length}`),
+    ));
+    const gbody = el("div", { class: "cg-body" });
+    for (const item of egreso.items_checklist) {
+      gbody.append(el("div", { class: "check-row" },
+        el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
+        el("div", { class: "check-label" },
+          item.label,
+          item.requerido_legal ? el("span", { style: "color:var(--err); font-size:11px; margin-left:4px;" }, "legal") : null,
+        ),
+        !item.done
+          ? el("button", { class: "btn-sm", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id) }, "Marcar")
+          : el("span", { class: "ri-meta" }, item.autor || ""),
+      ));
+    }
+    grp.append(gbody);
+    body.append(grp);
+
+    // Botones de acción según estado
+    const todosDone = egreso.items_checklist.every(i => i.done);
+    if (estado === "info" || estado === "bloqueado") {
+      if (todosDone) {
+        body.append(el("button", { class: "btn-primary", onClick: () => darOkAdmin(egreso.id, intern.id) }, "OK Administrativo"));
+      }
+    } else if (estado === "egreso_admin") {
+      body.append(el("button", { class: "btn-primary", onClick: () => confirmarSalidaFisica(egreso.id, cama.id) }, "Confirmar Salida Física"));
+    }
+  } else if (estado === "egreso_admin") {
+    // sin items pendientes, directo al botón
+    body.append(el("button", { class: "btn-primary", onClick: () => confirmarSalidaFisica(egreso.id, cama.id) }, "Confirmar Salida Física"));
+  }
+
+  // Checklist de limpieza (cama en LIMPIEZA_TERMINAL)
+  if (cama.estado_gestion === "LIMPIEZA_TERMINAL" && egreso.limpieza_checklist?.length) {
+    const grp = el("div", { class: "check-group" });
+    const done = egreso.limpieza_checklist.filter(i => i.done).length;
+    grp.append(el("div", { class: "cg-head cg-medico" },
+      el("div", {}, "Limpieza terminal"),
+      el("div", {}, `${done}/${egreso.limpieza_checklist.length}`),
+    ));
+    const gbody = el("div", { class: "cg-body" });
+    for (const item of egreso.limpieza_checklist) {
+      gbody.append(el("div", { class: "check-row" },
+        el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
+        el("div", { class: "check-label" }, item.label),
+        !item.done
+          ? el("button", { class: "btn-sm", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar")
+          : el("span", { class: "ri-meta" }, item.autor || ""),
+      ));
+    }
+    grp.append(gbody);
+    body.append(grp);
+  }
+
+  // Discrepancias
+  if (egreso.discrepancias?.length) {
+    const grp = el("div", {});
+    grp.append(el("div", { class: "field-lbl", style: "margin-bottom:4px;" }, "Discrepancias"));
+    for (const d of egreso.discrepancias) {
+      grp.append(el("div", { class: "nota" },
+        el("div", { class: "nota-txt" }, `${d.motivo}: ${d.nota || ""}`),
+        el("div", { class: "nota-meta" }, `${fmtFecha(d.hora)} · ${d.autor}`),
+      ));
+    }
+    body.append(grp);
+  }
+
+  // Notas de egreso
+  if (egreso.notas?.length) {
+    const grp = el("div", {});
+    grp.append(el("div", { class: "field-lbl", style: "margin-bottom:4px;" }, "Notas de egreso"));
+    for (const n of egreso.notas) {
+      grp.append(el("div", { class: "nota" },
+        el("div", { class: "nota-txt" }, `[${n.tipo}] ${n.texto}`),
+        el("div", { class: "nota-meta" }, `${fmtFecha(n.hora)} · ${n.autor}`),
+      ));
+    }
+    body.append(grp);
+  }
+
+  wrap.append(body);
+  return wrap;
+}
+
+function renderCrearEgresoPanel(intern, cama) {
+  const wrap = el("div", { class: "card" });
+  wrap.append(el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Iniciar egreso")));
+  const body = el("div", { class: "card-body", style: "display:flex; flex-direction:column; gap:8px;" });
+  const select = el("select", { class: "field-sel" },
+    ...MEDIOS_EGRESO.map(m => el("option", { value: m.value }, m.label)),
+  );
+  body.append(
+    el("div", { class: "field-lbl" }, "Medio de egreso"),
+    select,
+    el("div", { class: "action-foot" },
+      el("button", { class: "btn-primary", onClick: () => crearEgreso(intern.id, cama.id, select.value) }, "Crear egreso"),
+    ),
+  );
+  wrap.append(body);
+  return wrap;
 }
 
 function renderResumen() {
@@ -272,7 +476,11 @@ function renderDetalle() {
   }
   
   drawerBody.append(renderAccionesArea(d));
-  if (intern) drawerBody.append(renderChecklist(intern, d));
+
+  if (intern && ["PROCESO_DE_ALTA", "LIMPIEZA_TERMINAL"].includes(d.estado_gestion)) {
+    if (state.egreso) drawerBody.append(renderEgresoPanel(state.egreso, intern, d));
+    else if (d.estado_gestion === "PROCESO_DE_ALTA") drawerBody.append(renderCrearEgresoPanel(intern, d));
+  }
 
   // Pintamos hitos
   const hitosCont = el("div", { class: "card" });
