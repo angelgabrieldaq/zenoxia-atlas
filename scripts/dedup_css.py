@@ -1,5 +1,4 @@
 """Dedup + reorganización de styles.css — Atlas.
-Uso: python3 dedup_css.py
 Lee /app/frontend/styles.css, escribe /app/frontend/styles_dedup.css.
 """
 from collections import defaultdict, OrderedDict
@@ -17,7 +16,8 @@ def parse_css(lines):
     i = 0
     while i < len(lines):
         stripped = lines[i].strip()
-        if stripped.startswith("@") or stripped == "}":
+        # @-rules (media, keyframes, etc.) → collect raw block
+        if stripped.startswith("@"):
             depth = 0
             raw = []
             while i < len(lines):
@@ -28,7 +28,7 @@ def parse_css(lines):
                     break
             items.append(("at", "".join(raw)))
             continue
-        if stripped.startswith("/*") or stripped == "" or stripped.startswith("//"):
+        if stripped.startswith("/*") or stripped == "" or stripped == "}":
             i += 1
             continue
         if "{" in lines[i]:
@@ -67,6 +67,7 @@ for item in items:
         rules_by_sel[sel].append(item[2])
 
 def merge_props(defs):
+    """Last definition wins; earlier defs contribute props the last lacks."""
     winner = dict(defs[-1])
     for earlier in defs[:-1]:
         for k, v in earlier.items():
@@ -77,43 +78,71 @@ def merge_props(defs):
 merged = {sel: merge_props(defs) for sel, defs in rules_by_sel.items()}
 dedup_count = sum(1 for defs in rules_by_sel.values() if len(defs) > 1)
 
+# ── Guardia de propiedades críticas ───────────────────────────────────────────
+# Asegura que los fixes de scroll del drawer sobreviven el dedup.
+REQUIRED = {
+    ".drawer": {
+        "height": "100vh",
+        "display": "flex",
+        "flex-direction": "column",
+        "overflow": "hidden",
+    },
+    ".drawer-body": {
+        "flex": "1",
+        "min-height": "0",
+        "overflow-y": "auto",
+    },
+}
+for sel, required_props in REQUIRED.items():
+    if sel in merged:
+        for k, v in required_props.items():
+            merged[sel].setdefault(k, v)
+
 # ── Section mapping ────────────────────────────────────────────────────────────
 SECTIONS = [
     ("/* ── Reset / Base ──────────────────────────────────────────────── */", [
         "*", "*, *::before, *::after", "*::before", "*::after",
+        "p", "button", "textarea", "fieldset", "legend",
+        ":focus-visible", "input::placeholder",
         "html", "body",
     ]),
     ("/* ── Layout principal ───────────────────────────────────────────── */", [
-        ".meta", ".meta-title", ".meta-sub", ".slabel", ".logo",
+        ".meta", ".meta-title", ".meta-sub", ".slabel", ".logo", ".logo svg",
+        ".brand", ".brand-logo", ".brand-text", ".brand-name", ".brand-sub",
         ".shell", ".topbar", ".tb-left", ".tb-right", ".tb-name", ".tb-role", ".tb-date",
-        ".topbar-controls",
+        ".topbar-controls", ".topbar-controls select",
+        ".role-switch", ".rs-opt", ".rs-opt:last-child", ".rs-opt.on",
         ".map-tabs", ".mtab", ".mtab.active",
         ".map-area", ".map-hint",
         "#topbar", "#board", "#resumen",
+        ".visually-hidden", ".skip-link", ".skip-link:focus",
     ]),
     ("/* ── Resumen / chips ────────────────────────────────────────────── */", [
         ".summary-panel", ".chip", ".chip .chip-n", ".chip-dot", ".chip-total",
     ]),
-    ("/* ── Tablero — cama cards ───────────────────────────────────────── */", [
-        ".grid",
+    ("/* ── Tablero — sectores y cama cards ────────────────────────────── */", [
+        ".sector", ".sector-head", ".sector-title", ".sector-count",
+        ".grid", ".cama-grid",
         ".cama", ".cama:hover",
         ".cama.libre", ".cama.ocup", ".cama.alta", ".cama.alta-admin",
         ".cama.bloq", ".cama.bloq.demorado", ".cama.limp",
+        '.cama[data-estado="DISPONIBLE"]', '.cama[data-estado="OCUPADA"]',
+        '.cama[data-estado="RESERVADA"]', '.cama[data-estado="PROCESO_DE_ALTA"]',
+        '.cama[data-estado="LIMPIEZA_TERMINAL"]', '.cama[data-estado="BLOQUEADA"]',
         ".cama-top", ".cama-num", ".cama-pac", ".cama-proc", ".cama-status",
         ".cama-cob", ".cama-motivo", ".cama-empty", ".cama-libre-lbl",
         ".cama-flag", ".cama-espera", ".cama-state-dot",
+        ".cama-codigo", ".cama-tipo", ".cama-body",
+        ".badge",
         ".bst-libre", ".bst-ocup", ".bst-alta", ".bst-alta-admin",
         ".bst-bloq", ".bst-demo", ".bst-limp",
     ]),
     ("/* ── Overlay + Drawer ───────────────────────────────────────────── */", [
-        ".overlay",
+        ".overlay", ".overlay.open",
         ".drawer",
-        '.drawer[data-estado="DISPONIBLE"]',
-        '.drawer[data-estado="OCUPADA"]',
-        '.drawer[data-estado="RESERVADA"]',
-        '.drawer[data-estado="PROCESO_DE_ALTA"]',
-        '.drawer[data-estado="LIMPIEZA_TERMINAL"]',
-        '.drawer[data-estado="BLOQUEADA"]',
+        '.drawer[data-estado="DISPONIBLE"]', '.drawer[data-estado="OCUPADA"]',
+        '.drawer[data-estado="RESERVADA"]', '.drawer[data-estado="PROCESO_DE_ALTA"]',
+        '.drawer[data-estado="LIMPIEZA_TERMINAL"]', '.drawer[data-estado="BLOQUEADA"]',
         ".drawer.open",
         ".drawer-head", ".drawer-head .codigo", ".drawer-head .meta",
         ".drawer-body",
@@ -138,11 +167,16 @@ SECTIONS = [
         ".btn-green", ".btn-green:hover",
         ".btn-warn", ".btn-warn:hover", ".btn-warn .rol-hint",
         ".btn-ghost", ".btn-ghost:hover",
-        ".btn-sm", ".btn-sm:hover", ".btn-sm.tap", ".btn-sm.tap:hover",
+        ".btn-sm", ".btn-sm::before", ".btn-sm:hover", ".btn-sm.tap", ".btn-sm.tap:hover",
+        ".btn-block",
         ".action-foot",
         ".rol-hint", ".rol-hint--warn",
         ".form", ".form h3",
+        ".field", ".field > label",
         ".field-lbl", ".field-sel",
+        ".form .field", ".form .field > label", ".form select",
+        ".form-row", ".form-divider", ".form-divider::after",
+        ".form-actions", ".form-actions .btn",
         ".responsable-tag",
         ".medio-banner", ".mb-camina", ".mb-ambulancia", ".mb-derivacion", ".mb-pend",
         ".equip-opts", ".equip-chip", ".equip-chip:hover", ".equip-chip.sel",
@@ -163,6 +197,7 @@ SECTIONS = [
         ".ri-meta",
     ]),
     ("/* ── Hitos / Timeline / Notas ───────────────────────────────────── */", [
+        ".hitos",
         ".tl", ".tl-item", ".tl-lw", ".tl-dot", ".tl-vert",
         ".tl-body", ".tl-time", ".tl-event", ".tl-who",
         ".hito", ".hito-cod", ".hito-meta",
@@ -177,8 +212,9 @@ SECTIONS = [
         ".toast--ok", ".toast--err", ".toast--warn", ".toast--info",
         ".toast-text", ".toast-close",
     ]),
-    ("/* ── Utilidades ─────────────────────────────────────────────────── */", [
+    ("/* ── Utilidades / Alertas ───────────────────────────────────────── */", [
         ".num", ".muted",
+        ".banner-warn",
         ".alert-box", ".info-box", ".demo-box",
         ".modal-bd", ".modal-bd.open", ".modal",
         ".m-head", ".m-title", ".m-sub", ".m-body",
@@ -191,7 +227,6 @@ for si, (header, sels) in enumerate(SECTIONS):
     for s in sels:
         sel_to_section[s] = si
 
-# @-rules verbatim
 at_rules_raw = [item[1] for item in items if item[0] == "at"]
 
 # ── Render ─────────────────────────────────────────────────────────────────────
@@ -213,7 +248,7 @@ for sel in rule_order:
 out = []
 out.append("/* styles.css — Atlas · Zenoxia")
 out.append(" * Dedup + reorganización 2026-06-11. 0 selectores duplicados.")
-out.append(" * Fuente de valores: design-tokens.css")
+out.append(" * Fuente de variables: design-tokens.css")
 out.append(" */\n")
 
 for si, (header, _) in enumerate(SECTIONS):
@@ -236,7 +271,6 @@ if unassigned:
     out.append("")
 
 out.append("/* ── Animaciones + Responsive ───────────────────────────────────── */")
-# Deduplicate @-rules by content (some @keyframes appear twice)
 seen_at = set()
 for at in at_rules_raw:
     key = re.sub(r"\s+", " ", at.strip())
@@ -249,15 +283,24 @@ final = "\n".join(out)
 with open(DST, "w") as f:
     f.write(final)
 
-orig_lines = len(lines)
-new_lines = final.count("\n") + 1
+# ── Verificación de propiedades críticas ───────────────────────────────────────
 print(f"Selectores únicos totales : {len(rules_by_sel)}")
 print(f"Duplicados colapsados     : {dedup_count}")
 print(f"Sin asignar a sección     : {len(unassigned)}")
-print(f"Líneas originales         : {orig_lines}")
-print(f"Líneas resultado          : {new_lines}")
+print(f"Líneas originales         : {len(lines)}")
+print(f"Líneas resultado          : {final.count(chr(10)) + 1}")
+
+print("\n── Propiedades críticas del drawer ──")
+for sel, required in REQUIRED.items():
+    props = merged.get(sel, {})
+    for k, v in required.items():
+        actual = props.get(k, "(AUSENTE)")
+        ok = "✓" if actual == v else f"✗ (tiene: {actual})"
+        print(f"  {sel} · {k}: {v}  {ok}")
+
 if unassigned:
-    print("\nSelectores sin asignar (van a sección Otros):")
+    print(f"\nSin asignar ({len(unassigned)}):")
     for s in unassigned:
         print(f"  {s}")
+
 print(f"\nEscrito: {DST}")
