@@ -213,6 +213,104 @@ const _DISCREP_MOTIVOS = [
   "otro",
 ];
 
+const _LABEL_ORDEN_TRASLADO = "Orden de traslado emitida por el médico";
+const _MEDIOS_CON_ORDEN = new Set(["ambulancia", "derivacion"]);
+
+// Muestra el formulario de datos logísticos de traslado como modal.
+// Retorna Promise<object|null> — null si el usuario canceló.
+function _pedirDatosTraslado(datosPrevios = {}) {
+  return new Promise((resolve) => {
+    const overlay = el("div", { class: "overlay open", style: "z-index:300;" });
+    const modal = el("div", {
+      class: "card",
+      style: "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:301;width:min(480px,92vw);max-height:85vh;overflow-y:auto;",
+    });
+
+    modal.append(el("div", { class: "card-head" },
+      el("div", { class: "card-title" }, "Datos de traslado — Orden médica"),
+    ));
+    const body = el("div", { class: "card-body", style: "display:flex;flex-direction:column;gap:12px;" });
+
+    const _sel = (id, opts, val) => {
+      const s = el("select", { class: "field-sel", id, style: "height:44px;" },
+        ...opts.map(([v, lbl]) => el("option", { value: v }, lbl)),
+      );
+      if (val) s.value = val;
+      return s;
+    };
+    const _chk = (id, lbl, val) => {
+      const inp = document.createElement("input");
+      inp.type = "checkbox"; inp.id = id; inp.checked = !!val;
+      inp.style.cssText = "width:20px;height:20px;cursor:pointer;";
+      return el("label", { style: "display:flex;align-items:center;gap:8px;cursor:pointer;height:44px;" }, inp, lbl);
+    };
+    const _txt = (id, val) => {
+      const t = document.createElement("input");
+      t.type = "text"; t.id = id; t.className = "field-sel"; t.value = val || "";
+      t.style.height = "44px";
+      return t;
+    };
+    const _lbl = (txt) => el("div", { class: "field-lbl" }, txt);
+
+    const selDestino = _sel("f-destino", [
+      ["domicilio","Domicilio"],["sanatorio","Sanatorio"],
+      ["tercer_nivel","Tercer nivel"],["geriatrico","Geriátrico"],
+      ["psiquiatrico","Psiquiátrico"],["otro","Otro"],
+    ], datosPrevios.destino_tipo);
+    const txtDireccion = _txt("f-direccion", datosPrevios.destino_direccion);
+    const txtPrestador = _txt("f-prestador", datosPrevios.prestador);
+    const chkMedico    = _chk("f-medico", "Médico a bordo", datosPrevios.medico_a_bordo);
+    const chkAcomp     = _chk("f-acomp", "Acompañante", datosPrevios.acompanante);
+    const chkOxigeno   = _chk("f-oxig", "Oxígeno", datosPrevios.oxigeno);
+    const selAccesib   = _sel("f-accesib", [
+      ["planta_baja","Planta baja"],["escaleras","Escaleras"],
+      ["ascensor","Ascensor"],["no_aplica","No aplica"],
+    ], datosPrevios.accesibilidad_destino);
+    const selIntDom    = _sel("f-intdom", [
+      ["desconocido","Desconocido (confirmar antes del cierre)"],
+      ["si","Sí — requiere internación domiciliaria"],
+      ["no","No"],
+    ], datosPrevios.internacion_domiciliaria || "desconocido");
+
+    body.append(
+      _lbl("Destino"), selDestino,
+      _lbl("Dirección destino *"), txtDireccion,
+      _lbl("Prestador / Empresa"), txtPrestador,
+      el("div", { style: "display:flex;flex-direction:column;gap:4px;" },
+        _lbl("Requerimientos"), chkMedico, chkAcomp, chkOxigeno,
+      ),
+      _lbl("Accesibilidad destino"), selAccesib,
+      _lbl("Internación domiciliaria"), selIntDom,
+    );
+
+    const foot = el("div", { class: "action-foot" },
+      el("button", { class: "btn-primary", style: "height:44px;", onClick: () => {
+        const dir = txtDireccion.value.trim();
+        const pre = txtPrestador.value.trim();
+        if (!dir || !pre) { toast("Dirección y prestador son obligatorios.", "err"); return; }
+        cleanup();
+        resolve({
+          destino_tipo: selDestino.value,
+          destino_direccion: dir,
+          prestador: pre,
+          medico_a_bordo: chkMedico.querySelector("input").checked,
+          acompanante: chkAcomp.querySelector("input").checked,
+          oxigeno: chkOxigeno.querySelector("input").checked,
+          accesibilidad_destino: selAccesib.value,
+          internacion_domiciliaria: selIntDom.value,
+        });
+      }}, "Confirmar orden"),
+      el("button", { class: "btn-ghost", style: "height:44px;", onClick: () => { cleanup(); resolve(null); } }, "Cancelar"),
+    );
+    body.append(foot);
+    modal.append(body);
+
+    const cleanup = () => { overlay.remove(); modal.remove(); };
+    overlay.addEventListener("click", () => { cleanup(); resolve(null); });
+    document.body.append(overlay, modal);
+  });
+}
+
 function _pedirDiscrepancia() {
   const lista = _DISCREP_MOTIVOS.join(", ");
   const motivo = prompt(`Override ADMISION — motivo obligatorio:\n${lista}`);
@@ -226,13 +324,19 @@ function _pedirDiscrepancia() {
   return { motivo: m, nota: nota.trim() || null };
 }
 
-async function marcarItemEgreso(egresoId, itemId, internacionId, responsableItem) {
+async function marcarItemEgreso(egresoId, itemId, internacionId, responsableItem, itemLabel, egreso) {
   const body = { rol: state.rol };
   if (state.actorNombre.trim()) body.actor_nombre = state.actorNombre.trim();
   if (state.rol === "ADMISION" && responsableItem !== "admision") {
     const disc = _pedirDiscrepancia();
-    if (disc === null) return;               // usuario canceló
+    if (disc === null) return;
     body.discrepancia = disc;
+  }
+  // Ítem de orden de traslado: requiere datos logísticos (medio ambulancia/derivacion)
+  if (itemLabel === _LABEL_ORDEN_TRASLADO && _MEDIOS_CON_ORDEN.has(egreso?.medio_egreso)) {
+    const datos = await _pedirDatosTraslado(egreso?.datos_traslado || {});
+    if (datos === null) return;              // usuario canceló
+    body.datos_traslado = datos;
   }
   try {
     await api(`/egresos/${egresoId}/checklist/${itemId}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -312,6 +416,19 @@ function renderEgresoPanel(egreso, intern, cama) {
     el("strong", {}, "Medio: "), egreso.medio_egreso,
   ));
 
+  // Banner orden de traslado pendiente (ambulancia/derivacion)
+  if (_MEDIOS_CON_ORDEN.has(egreso.medio_egreso)) {
+    const ordenPendiente = egreso.items_checklist?.some(
+      i => i.label === _LABEL_ORDEN_TRASLADO && !i.done
+    );
+    if (ordenPendiente) {
+      body.append(el("div", { class: "banner-warn" },
+        "Este egreso requiere orden de traslado del médico: datos del paciente, destino y dirección, " +
+        "requerimientos (oxígeno, médico a bordo, acompañante) e internación domiciliaria si va a domicilio."
+      ));
+    }
+  }
+
   // Checklist de egreso (estados pre-salida-fisica)
   if (["info", "bloqueado", "egreso_admin"].includes(estado) && egreso.items_checklist?.length) {
     const rolNorm = state.rol.toLowerCase();
@@ -325,7 +442,7 @@ function renderEgresoPanel(egreso, intern, cama) {
       ),
       !item.done
         ? (rolNorm === item.responsable || isAdmision
-            ? el("button", { class: "btn-sm tap", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable) }, "Marcar")
+            ? el("button", { class: "btn-sm tap", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable, item.label, egreso) }, "Marcar")
             : el("span", { class: "ri-meta" }, `Pendiente: ${item.responsable}`))
         : el("span", { class: "ri-meta" }, item.autor || ""),
     );
@@ -376,17 +493,31 @@ function renderEgresoPanel(egreso, intern, cama) {
 
   // Checklist de limpieza (cama en LIMPIEZA_TERMINAL)
   if (cama.estado_gestion === "LIMPIEZA_TERMINAL" && egreso.limpieza_checklist?.length) {
-    const canMarkLimpieza = ["LIMPIEZA", "HOTELERIA", "ADMISION"].includes(state.rol);
-
-    const renderLimpiezaItem = (item) => el("div", { class: "check-row" },
-      el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
-      el("div", { class: "check-label" }, item.label),
-      !item.done
-        ? (canMarkLimpieza
-            ? el("button", { class: "btn-sm tap", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar")
-            : el("span", { class: "ri-meta" }, "Pendiente: limpieza"))
-        : el("span", { class: "ri-meta" }, item.autor || ""),
-    );
+    // EJECUCION: LIMPIEZA, HOTELERIA, ADMISION pueden marcar
+    // SUPERVISION: solo HOTELERIA, ADMISION; LIMPIEZA ve texto informativo
+    const renderLimpiezaItem = (item) => {
+      let accion;
+      if (!item.done) {
+        const esSupervision = item.codigo === "SUPERVISION";
+        const puedeMarcar = esSupervision
+          ? ["HOTELERIA", "ADMISION"].includes(state.rol)
+          : ["LIMPIEZA", "HOTELERIA", "ADMISION"].includes(state.rol);
+        if (puedeMarcar) {
+          accion = el("button", { class: "btn-sm tap", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar");
+        } else if (esSupervision && state.rol === "LIMPIEZA") {
+          accion = el("span", { class: "ri-meta" }, "Pendiente: supervisión de hotelería");
+        } else {
+          accion = el("span", { class: "ri-meta" }, "Pendiente: limpieza");
+        }
+      } else {
+        accion = el("span", { class: "ri-meta" }, item.autor || "");
+      }
+      return el("div", { class: "check-row" },
+        el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
+        el("div", { class: "check-label" }, item.label),
+        accion,
+      );
+    };
 
     const grp = el("div", { class: "check-group" });
     const done = egreso.limpieza_checklist.filter(i => i.done).length;
@@ -396,7 +527,8 @@ function renderEgresoPanel(egreso, intern, cama) {
     ));
     const gbody = el("div", { class: "cg-body" });
 
-    if (canMarkLimpieza) {
+    const puedeLimpieza = ["LIMPIEZA", "HOTELERIA", "ADMISION"].includes(state.rol);
+    if (puedeLimpieza) {
       for (const item of egreso.limpieza_checklist) gbody.append(renderLimpiezaItem(item));
     } else {
       const pending = egreso.limpieza_checklist.filter(i => !i.done).length;
@@ -454,9 +586,22 @@ function renderCrearEgresoPanel(intern, cama) {
   const select = el("select", { class: "field-sel" },
     ...MEDIOS_EGRESO.map(m => el("option", { value: m.value }, m.label)),
   );
+
+  const bannerOrden = el("div", { class: "banner-warn", style: "display:none;" },
+    "Este egreso requiere orden de traslado del médico: datos del paciente, destino y dirección, " +
+    "requerimientos (oxígeno, médico a bordo, acompañante) e internación domiciliaria si va a domicilio."
+  );
+
+  const actualizarBanner = () => {
+    bannerOrden.style.display = _MEDIOS_CON_ORDEN.has(select.value) ? "" : "none";
+  };
+  select.addEventListener("change", actualizarBanner);
+  actualizarBanner();
+
   body.append(
     el("div", { class: "field-lbl" }, "Medio de egreso"),
     select,
+    bannerOrden,
     el("div", { class: "action-foot" },
       el("button", { class: "btn-primary", onClick: () => crearEgreso(intern.id, cama.id, select.value) }, "Crear egreso"),
     ),
