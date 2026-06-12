@@ -109,7 +109,7 @@ _PATRON_ESTADOS: tuple[EstadoCamaGestion, ...] = (
     EstadoCamaGestion.PROCESO_DE_ALTA,
     EstadoCamaGestion.DISPONIBLE,
     EstadoCamaGestion.OCUPADA,
-    EstadoCamaGestion.LIMPIEZA_TERMINAL,
+    EstadoCamaGestion.DISPONIBLE,
     EstadoCamaGestion.DISPONIBLE,
     EstadoCamaGestion.OCUPADA,
     EstadoCamaGestion.DISPONIBLE,
@@ -223,7 +223,7 @@ async def seed_hospital_demo(
       ``internacion_actual_id`` (el paciente está/sigue en la cama);
     * RESERVADA → paciente + internación + ``Reserva`` ACTIVA del tipo de la cama
       (``internacion_actual_id`` apuntando a esa internación, como deja la transición real);
-    * LIMPIEZA_TERMINAL → sin internación (el paciente ya egresó);
+    * LIMPIEZA_TERMINAL → no se crea en el demo (requiere egreso + checklist real);
     * BLOQUEADA → ``motivo_bloqueo`` ficticio, sin paciente;
     * DISPONIBLE → cama limpia, sin nada.
 

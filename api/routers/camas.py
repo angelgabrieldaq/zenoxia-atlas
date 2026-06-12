@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_checklist, get_notas, get_reservas, get_session, get_transiciones
 from api.schemas import (
-    AltaFisicaBody,
     BloquearBody,
     CamaDetalleOut,
     CamaOut,
@@ -248,34 +247,15 @@ async def iniciar_alta(
     return CamaOut.model_validate(cama)
 
 
-@router.post("/{cama_id}/alta-fisica", response_model=CamaOut)
-async def alta_fisica(
-    cama_id: uuid.UUID,
-    body: AltaFisicaBody,
-    session: AsyncSession = Depends(get_session),
-    checklist: ServicioChecklistAlta = Depends(get_checklist),
-):
-    cama = await _get_cama_or_404(cama_id, session)
-    if cama.internacion_actual_id is None:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "No se puede dar el alta física: la cama no tiene una "
-                "internación asociada en este momento."
-            ),
-        )
-    internacion = await _get_internacion_or_404(cama.internacion_actual_id, session)
-    await checklist.dar_alta_fisica_validada(
-        session,
-        cama,
-        internacion,
-        body.rol,
-        actor_nombre=body.actor_nombre,
-        forzar=body.forzar,
-        motivo_override=body.motivo_override,
+@router.post("/{cama_id}/alta-fisica", status_code=410)
+async def alta_fisica_obsoleto():
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Este endpoint fue eliminado. El único camino a LIMPIEZA_TERMINAL es "
+            "PATCH /egresos/{egreso_id}/salida-fisica, que crea el checklist de limpieza."
+        ),
     )
-    await session.refresh(cama)
-    return CamaOut.model_validate(cama)
 
 
 @router.post("/{cama_id}/finalizar-limpieza", response_model=CamaOut)

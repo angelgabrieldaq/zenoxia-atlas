@@ -261,83 +261,15 @@ async def test_completar_paso_de_checklist(client: AsyncClient, session: AsyncSe
     assert data["completado_por_rol"] == "MEDICO"
 
 
-async def test_alta_fisica_con_pasos_bloqueantes_devuelve_409_y_pasos_pendientes(
+async def test_alta_fisica_endpoint_obsoleto_devuelve_410(
     client: AsyncClient, session: AsyncSession
 ):
-    from database.models import PasoAltaCatalogo
-
-    internacion = await _crear_internacion(session)
+    """El endpoint viejo POST /camas/{id}/alta-fisica fue eliminado (bug: saltaba egreso y
+    checklist de limpieza). Debe devolver 410 Gone. El único camino a LIMPIEZA_TERMINAL
+    es PATCH /egresos/{id}/salida-fisica."""
     cama = await _crear_cama(session)
-
-    r = await client.post(
-        f"/camas/{cama.id}/ocupar",
-        json={"internacion_id": str(internacion.id), "rol": "ADMISION"},
-    )
-    assert r.status_code == 200
-
-    r = await client.post(f"/camas/{cama.id}/iniciar-alta", json={"rol": "MEDICO"})
-    assert r.status_code == 200
-
-    paso = PasoAltaCatalogo(
-        codigo="CHECK_03",
-        nombre="Confirmar orden de egreso",
-        bloqueante=True,
-        activo=True,
-        orden=1,
-    )
-    session.add(paso)
-    await session.commit()
-    r = await client.post(f"/camas/internaciones/{internacion.id}/pasos/instanciar")
-    assert r.status_code == 200
-
-    r2 = await client.post(
-        f"/camas/{cama.id}/alta-fisica",
-        json={"rol": "ADMISION"},
-    )
-    assert r2.status_code == 409
-    assert "pasos_pendientes" in r2.json()
-    assert r2.json()["pasos_pendientes"] == ["CHECK_03"]
-
-
-async def test_alta_fisica_override_con_pasos_bloqueantes_procede(
-    client: AsyncClient, session: AsyncSession
-):
-    from database.models import PasoAltaCatalogo
-
-    internacion = await _crear_internacion(session)
-    cama = await _crear_cama(session)
-
-    r = await client.post(
-        f"/camas/{cama.id}/ocupar",
-        json={"internacion_id": str(internacion.id), "rol": "ADMISION"},
-    )
-    assert r.status_code == 200
-
-    r = await client.post(f"/camas/{cama.id}/iniciar-alta", json={"rol": "MEDICO"})
-    assert r.status_code == 200
-
-    paso = PasoAltaCatalogo(
-        codigo="CHECK_04",
-        nombre="Verificar orden de alta",
-        bloqueante=True,
-        activo=True,
-        orden=1,
-    )
-    session.add(paso)
-    await session.commit()
-    r = await client.post(f"/camas/internaciones/{internacion.id}/pasos/instanciar")
-    assert r.status_code == 200
-
-    r2 = await client.post(
-        f"/camas/{cama.id}/alta-fisica",
-        json={
-            "rol": "ADMISION",
-            "forzar": True,
-            "motivo_override": "Alta urgente con paso pendiente",
-        },
-    )
-    assert r2.status_code == 200
-    assert r2.json()["estado_gestion"] == "LIMPIEZA_TERMINAL"
+    r = await client.post(f"/camas/{cama.id}/alta-fisica", json={"rol": "ADMISION"})
+    assert r.status_code == 410
 
 
 async def test_ocupar_cama_con_rol_correcto(
@@ -409,10 +341,12 @@ async def test_listar_internaciones(
     assert len(r.json()) == 1
 
 
-async def test_flujo_completo_disponible_a_limpieza(
+async def test_flujo_completo_disponible_a_proceso_alta(
     client: AsyncClient, session: AsyncSession
 ):
-    """Flujo feliz: DISPONIBLE → OCUPADA → PROCESO_DE_ALTA → LIMPIEZA_TERMINAL."""
+    """Flujo feliz por HTTP: DISPONIBLE → OCUPADA → PROCESO_DE_ALTA.
+    LIMPIEZA_TERMINAL se alcanza sólo via PATCH /egresos/{id}/salida-fisica (testeado
+    en test_api_egresos.py); el endpoint /alta-fisica fue eliminado (devuelve 410)."""
     cama = await _crear_cama(session)
     internacion = await _crear_internacion(session)
     cid = str(cama.id)
@@ -425,9 +359,6 @@ async def test_flujo_completo_disponible_a_limpieza(
 
     r = await client.post(f"/camas/{cid}/iniciar-alta", json={"rol": "MEDICO"})
     assert r.json()["estado_gestion"] == "PROCESO_DE_ALTA"
-
-    r = await client.post(f"/camas/{cid}/alta-fisica", json={"rol": "ADMISION"})
-    assert r.json()["estado_gestion"] == "LIMPIEZA_TERMINAL"
 
 
 async def test_crear_internacion_con_cobertura(client: AsyncClient):
@@ -635,23 +566,28 @@ async def test_revertir_alta_temprana_por_error(
 async def test_revertir_alta_tardia_reingreso_fisico(
     client: AsyncClient, session: AsyncSession
 ):
-    """Llegá a LIMPIEZA_TERMINAL por el flujo real (ocupar → iniciar_alta → alta_fisica)
-    y revertí con REINGRESO_FISICO. La internación se recupera del hito de alta y la cama
-    vuelve a OCUPADA con el mismo paciente; hito ATLAS_REINGRESO_FISICO."""
+    """Llegá a LIMPIEZA_TERMINAL vía transición directa (setup de test) y revertí con
+    REINGRESO_FISICO. La internación se recupera del hito de alta y la cama vuelve a
+    OCUPADA con el mismo paciente; hito ATLAS_REINGRESO_FISICO."""
     from sqlalchemy import select as _select
 
     from database.models import HitoAtlas
+    from domain.state_machine import RolOperativo
+    from domain.transition_service import ServicioTransiciones
 
     internacion = await _crear_internacion(session)
     cama = await _crear_cama(session)
     cid = str(cama.id)
 
+    transiciones = ServicioTransiciones()
     await client.post(
         f"/camas/{cid}/ocupar",
         json={"internacion_id": str(internacion.id), "rol": "ADMISION"},
     )
     await client.post(f"/camas/{cid}/iniciar-alta", json={"rol": "MEDICO"})
-    await client.post(f"/camas/{cid}/alta-fisica", json={"rol": "ADMISION"})
+    await session.refresh(cama)
+    await transiciones.dar_alta_fisica(session, cama, RolOperativo.ADMISION)
+    await session.commit()
 
     await session.refresh(cama)
     assert cama.estado_gestion == EstadoCamaGestion.LIMPIEZA_TERMINAL
