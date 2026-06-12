@@ -10,7 +10,7 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 
 | Dimensión | Estado |
 |---|---|
-| **Tests** | **218 pasando** — suite completa verde |
+| **Tests** | **219 pasando** — suite completa verde |
 | **Entorno** | Docker + PostgreSQL funcionando |
 | **Fase** | Capa 1 (gestión operativa del día) en producción |
 | **Backend** | FastAPI async + SQLAlchemy 2.0 + Alembic |
@@ -282,10 +282,56 @@ Más índice único parcial `uq_egreso_activo_por_internacion` en `egresos(inter
 
 ---
 
-## 8. DOCUMENTOS RELACIONADOS
+## 8. TRAMO CERRADO — 11 jun 2026 (commits hasta c8c29a1)
+
+Frontend de egreso completo. Último commit pusheado: `c8c29a1`.
+
+### 8.1 Lo entregado en este tramo
+
+**Backend:**
+- 8 endpoints de egreso + `GET /internaciones/{id}/egreso-activo` (discovery)
+- Seguridad de roles en dominio: `RolNoAutorizado` → 403 para `marcar_item`, `ok_administrativo`, `marcar_item_limpieza`
+- Override de ADMISION con `Discrepancia` obligatoria (`motivo` + `nota`); motivo `"demora_responsable"` en catálogo
+- Fix **traza contaminada**: `GET /camas/{id}` filtra hitos por `internacion_actual_id OR NULL` (solo ve la internación vigente)
+- Índice único parcial `uq_egreso_activo_por_internacion`
+- 219 tests pasando
+
+**Frontend:**
+- Panel de egreso reactivo: checklist, limpieza, OK admin, salida física, discrepancias, notas
+- Override UI: `_pedirDiscrepancia()` con `prompt()` + validación contra `DISCREP_MOTIVOS`
+- **Botón según rol**: "Marcar" visible solo si `state.rol` coincide con `item.responsable` o es ADMISION; limpieza: LIMPIEZA/HOTELERIA/ADMISION; resto ve "Pendiente: {responsable}"
+- **Toast mejorado**: usa `.toast .toast--{kind}` del design system; errores 6 s; botón × para cerrar
+- **Polling 15 s**: `setInterval` en DOMContentLoaded, pausa en `document.hidden`, recarga egreso si drawer abierto
+- **Drawer scroll**: `height: 100vh` explícito
+
+**Infra:**
+- Bind mount `./:/app` + watchfiles hot-reload
+- `node_modules/` en `.gitignore` + `git rm --cached`
+
+### 8.2 Próximo borde — pantallas por rol
+
+**Diseño acordado:**
+- Una sola app; el rol cambia la vista (no rutas separadas).
+- **ADMISION**: conserva el tablero actual (vista completa).
+- **Resto de roles** (MEDICO, ENFERMERIA, LIMPIEZA, etc.): ven una lista plana de sus pendientes agrupada por cama — solo las camas donde tienen ítems sin marcar.
+
+**Prerequisito backend:**
+```
+GET /egresos/pendientes?rol=X
+```
+Devuelve: `[{ cama_nombre, egreso_id, internacion_id, items_pendientes: [...] }]`  
+(backlog #2 de `docs/MATRIZ_ROLES_Y_COLISIONES.md`)
+
+**Pendiente decisión:**
+- Orden de la lista del médico: ¿por tiempo trabado (más demorado primero), por sector, por número de ítems? Validar con dominio clínico antes de implementar.
+
+---
+
+## 9. DOCUMENTOS RELACIONADOS
 
 - `docs/MODELO_EGRESO_CERRADO.md` — diseño detallado del modelo de egreso (entidades, FSM, validaciones).
 - `docs/DISENO_MODULO_ATLAS.md` — visión de las 3 capas del módulo.
 - `docs/DISENO_TECNICO_ATLAS_CAPA1A.md` — especificación técnica Capa 1.
+- `docs/MATRIZ_ROLES_Y_COLISIONES.md` — matriz de roles, responsabilidades y colisiones; insumo de pantallas por rol.
 - `CLAUDE.md` — contexto operativo para Claude Code.
 - `zenoxia-core/DECISIONES_ARQUITECTURA_CORE.md` — decisiones de arquitectura del ecosistema.

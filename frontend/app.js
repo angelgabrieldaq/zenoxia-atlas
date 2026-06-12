@@ -581,7 +581,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }, 15000);
 });
-// --- FUNCIONES PARA RECUPERAR LA DATA PERDIDA ---
+// Helpers de renderizado del drawer — hitos y notas de la cama
 
 function renderHitos(hitos, host) {
   host.innerHTML = "";
