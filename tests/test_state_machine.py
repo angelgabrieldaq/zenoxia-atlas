@@ -118,7 +118,7 @@ ROLES_ESPERADOS = {
     (EstadoCamaGestion.RESERVADA, EstadoCamaGestion.DISPONIBLE): {RolOperativo.ADMISION},
     (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.PROCESO_DE_ALTA): {RolOperativo.MEDICO},
     (EstadoCamaGestion.PROCESO_DE_ALTA, EstadoCamaGestion.LIMPIEZA_TERMINAL): {RolOperativo.ADMISION, RolOperativo.ENFERMERIA},
-    (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.DISPONIBLE): {RolOperativo.LIMPIEZA},
+    (EstadoCamaGestion.LIMPIEZA_TERMINAL, EstadoCamaGestion.DISPONIBLE): {RolOperativo.LIMPIEZA, RolOperativo.HOTELERIA, RolOperativo.ADMISION},
     (EstadoCamaGestion.DISPONIBLE, EstadoCamaGestion.BLOQUEADA): {RolOperativo.MANTENIMIENTO},
     (EstadoCamaGestion.BLOQUEADA, EstadoCamaGestion.DISPONIBLE): {RolOperativo.MANTENIMIENTO},
     (EstadoCamaGestion.OCUPADA, EstadoCamaGestion.BLOQUEADA): {RolOperativo.MANTENIMIENTO},
