@@ -132,7 +132,8 @@ function toast(text, kind = "info") {
   const id = Date.now() + Math.random();
   state.toast = { text, kind, id };
   if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { if (state.toast && state.toast.id === id) state.toast = null; }, 4000);
+  const ms = kind === "err" ? 6000 : 4000;
+  toastTimer = setTimeout(() => { if (state.toast && state.toast.id === id) state.toast = null; }, ms);
 }
 
 async function cargarTablero() {
@@ -328,7 +329,9 @@ function renderEgresoPanel(egreso, intern, cama) {
           item.requerido_legal ? el("span", { style: "color:var(--err); font-size:11px; margin-left:4px;" }, "legal") : null,
         ),
         !item.done
-          ? el("button", { class: "btn-sm tap", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable) }, "Marcar")
+          ? (state.rol.toLowerCase() === item.responsable || state.rol === "ADMISION"
+              ? el("button", { class: "btn-sm tap", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable) }, "Marcar")
+              : el("span", { class: "ri-meta" }, `Pendiente: ${item.responsable}`))
           : el("span", { class: "ri-meta" }, item.autor || ""),
       ));
     }
@@ -362,7 +365,9 @@ function renderEgresoPanel(egreso, intern, cama) {
         el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
         el("div", { class: "check-label" }, item.label),
         !item.done
-          ? el("button", { class: "btn-sm tap", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar")
+          ? (["LIMPIEZA", "HOTELERIA", "ADMISION"].includes(state.rol)
+              ? el("button", { class: "btn-sm tap", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar")
+              : el("span", { class: "ri-meta" }, "Pendiente: limpieza"))
           : el("span", { class: "ri-meta" }, item.autor || ""),
       ));
     }
@@ -553,8 +558,10 @@ function renderToast() {
   host.innerHTML = "";
   if (!state.toast) return;
   const t = state.toast;
-  const cls = t.kind === "err" ? "alert-box" : t.kind === "warn" ? "wait-box" : "info-box";
-  host.append(el("div", { class: cls, style: "position:fixed; bottom:20px; right:20px; z-index:9999;" }, t.text));
+  host.append(el("div", { class: `toast toast--${t.kind}` },
+    el("span", { class: "toast-text" }, t.text),
+    el("button", { class: "toast-close", onClick: () => { state.toast = null; } }, "×"),
+  ));
 }
 
 document.addEventListener("DOMContentLoaded", () => {
@@ -564,6 +571,15 @@ document.addEventListener("DOMContentLoaded", () => {
   sel.addEventListener("change", () => state.rol = sel.value);
   document.getElementById("btn-refresh").addEventListener("click", cargarTablero);
   cargarTablero();
+
+  setInterval(async () => {
+    if (document.hidden) return;
+    await cargarTablero();
+    if (state.detalle && !state.pendingAction) {
+      const intern = internOf(state.detalle);
+      if (intern && state.egreso) await recargarEgreso(intern.id);
+    }
+  }, 15000);
 });
 // --- FUNCIONES PARA RECUPERAR LA DATA PERDIDA ---
 
