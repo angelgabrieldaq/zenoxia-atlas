@@ -314,6 +314,22 @@ function renderEgresoPanel(egreso, intern, cama) {
 
   // Checklist de egreso (estados pre-salida-fisica)
   if (["info", "bloqueado", "egreso_admin"].includes(estado) && egreso.items_checklist?.length) {
+    const rolNorm = state.rol.toLowerCase();
+    const isAdmision = state.rol === "ADMISION";
+
+    const renderCheckItem = (item) => el("div", { class: "check-row" },
+      el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
+      el("div", { class: "check-label" },
+        item.label,
+        item.requerido_legal ? el("span", { style: "color:var(--err); font-size:11px; margin-left:4px;" }, "legal") : null,
+      ),
+      !item.done
+        ? (rolNorm === item.responsable || isAdmision
+            ? el("button", { class: "btn-sm tap", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable) }, "Marcar")
+            : el("span", { class: "ri-meta" }, `Pendiente: ${item.responsable}`))
+        : el("span", { class: "ri-meta" }, item.autor || ""),
+    );
+
     const grp = el("div", { class: "check-group" });
     const done = egreso.items_checklist.filter(i => i.done).length;
     grp.append(el("div", { class: "cg-head cg-medico" },
@@ -321,20 +337,27 @@ function renderEgresoPanel(egreso, intern, cama) {
       el("div", { class: "num" }, `${done}/${egreso.items_checklist.length}`),
     ));
     const gbody = el("div", { class: "cg-body" });
-    for (const item of egreso.items_checklist) {
-      gbody.append(el("div", { class: "check-row" },
-        el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
-        el("div", { class: "check-label" },
-          item.label,
-          item.requerido_legal ? el("span", { style: "color:var(--err); font-size:11px; margin-left:4px;" }, "legal") : null,
-        ),
-        !item.done
-          ? (state.rol.toLowerCase() === item.responsable || state.rol === "ADMISION"
-              ? el("button", { class: "btn-sm tap", onClick: () => marcarItemEgreso(egreso.id, item.id, intern.id, item.responsable) }, "Marcar")
-              : el("span", { class: "ri-meta" }, `Pendiente: ${item.responsable}`))
-          : el("span", { class: "ri-meta" }, item.autor || ""),
-      ));
+
+    if (isAdmision) {
+      for (const item of egreso.items_checklist) gbody.append(renderCheckItem(item));
+    } else {
+      const myItems = egreso.items_checklist.filter(i => i.responsable === rolNorm);
+      const otherItems = egreso.items_checklist.filter(i => i.responsable !== rolNorm);
+      for (const item of myItems) gbody.append(renderCheckItem(item));
+      if (otherItems.length) {
+        const otherPending = otherItems.filter(i => !i.done);
+        const byRole = otherPending.reduce((acc, i) => { acc[i.responsable] = (acc[i.responsable] || 0) + 1; return acc; }, {});
+        const breakdown = Object.entries(byRole).map(([r, n]) => `${r} ${n}`).join(", ");
+        const summaryText = otherPending.length
+          ? `▸ ${otherPending.length} pendientes de otros roles${breakdown ? ` (${breakdown})` : ""}`
+          : `▸ ${otherItems.length} ítems de otros roles (todos completos)`;
+        const details = el("details", { class: "check-otros" });
+        details.append(el("summary", { class: "check-otros-summary" }, summaryText));
+        for (const item of otherItems) details.append(renderCheckItem(item));
+        gbody.append(details);
+      }
     }
+
     grp.append(gbody);
     body.append(grp);
 
@@ -353,6 +376,18 @@ function renderEgresoPanel(egreso, intern, cama) {
 
   // Checklist de limpieza (cama en LIMPIEZA_TERMINAL)
   if (cama.estado_gestion === "LIMPIEZA_TERMINAL" && egreso.limpieza_checklist?.length) {
+    const canMarkLimpieza = ["LIMPIEZA", "HOTELERIA", "ADMISION"].includes(state.rol);
+
+    const renderLimpiezaItem = (item) => el("div", { class: "check-row" },
+      el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
+      el("div", { class: "check-label" }, item.label),
+      !item.done
+        ? (canMarkLimpieza
+            ? el("button", { class: "btn-sm tap", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar")
+            : el("span", { class: "ri-meta" }, "Pendiente: limpieza"))
+        : el("span", { class: "ri-meta" }, item.autor || ""),
+    );
+
     const grp = el("div", { class: "check-group" });
     const done = egreso.limpieza_checklist.filter(i => i.done).length;
     grp.append(el("div", { class: "cg-head cg-medico" },
@@ -360,17 +395,20 @@ function renderEgresoPanel(egreso, intern, cama) {
       el("div", { class: "num" }, `${done}/${egreso.limpieza_checklist.length}`),
     ));
     const gbody = el("div", { class: "cg-body" });
-    for (const item of egreso.limpieza_checklist) {
-      gbody.append(el("div", { class: "check-row" },
-        el("div", { class: `check-box ${item.done ? "cb-done" : "cb-pend"}` }, item.done ? "✓" : ""),
-        el("div", { class: "check-label" }, item.label),
-        !item.done
-          ? (["LIMPIEZA", "HOTELERIA", "ADMISION"].includes(state.rol)
-              ? el("button", { class: "btn-sm tap", onClick: () => marcarItemLimpieza(egreso.id, item.id, cama.id) }, "Marcar")
-              : el("span", { class: "ri-meta" }, "Pendiente: limpieza"))
-          : el("span", { class: "ri-meta" }, item.autor || ""),
-      ));
+
+    if (canMarkLimpieza) {
+      for (const item of egreso.limpieza_checklist) gbody.append(renderLimpiezaItem(item));
+    } else {
+      const pending = egreso.limpieza_checklist.filter(i => !i.done).length;
+      const summaryText = pending
+        ? `▸ ${pending} pendientes de limpieza`
+        : `▸ ${egreso.limpieza_checklist.length} ítems de limpieza (todos completos)`;
+      const details = el("details", { class: "check-otros" });
+      details.append(el("summary", { class: "check-otros-summary" }, summaryText));
+      for (const item of egreso.limpieza_checklist) details.append(renderLimpiezaItem(item));
+      gbody.append(details);
     }
+
     grp.append(gbody);
     body.append(grp);
 
