@@ -73,6 +73,11 @@ _CATALOGO_LIMPIEZA: tuple[tuple[str, str], ...] = (
 _COD_SUPERVISION = "SUPERVISION"
 _COD_EJECUCION = "EJECUCION"
 
+# Ítem de orden médica de traslado (relevamiento §4, decisión fundador 12 jun).
+# Identificado por label (catálogo en código, no en DB).
+_LABEL_ORDEN_TRASLADO = "Orden de traslado emitida por el médico"
+_MEDIOS_CON_ORDEN = frozenset({"ambulancia", "derivacion"})
+
 
 # ────────────────────────────────────────────────────────────────────────── #
 # Excepciones de dominio
@@ -139,6 +144,16 @@ class MotivoDiscrepanciaInvalido(Exception):
 class EjecucionPendiente(Exception):
     """Se intentó marcar el ítem de SUPERVISION antes de que EJECUCION esté done.
     No se puede supervisar una limpieza que no terminó (relevamiento §3)."""
+
+
+class OrdenTrasladoRequiereDatos(Exception):
+    """Se intentó marcar el ítem de orden de traslado sin proveer datos_traslado.
+    El formulario de datos logísticos ES el acto de transcribir la orden (relevamiento §4)."""
+
+
+class InternacionDomiciliariaDesconocida(Exception):
+    """OK administrativo bloqueado: destino=domicilio, medio=ambulancia y
+    internacion_domiciliaria=desconocido. Admisión debe confirmar antes del cierre."""
 
 
 # ────────────────────────────────────────────────────────────────────────── #
@@ -234,6 +249,7 @@ class ServicioEgreso:
         actor_nombre: str | None = None,
         metadata: dict | None = None,
         discrepancia: dict | None = None,
+        datos_traslado: dict | None = None,
     ) -> ItemChecklistEgreso:
         """Marca un item del checklist como done.
 
@@ -275,6 +291,18 @@ class ServicioEgreso:
             raise ItemYaMarcado(
                 f"El item '{item.label}' ya estaba marcado como done."
             )
+
+        # Guard de orden de traslado: requiere datos logísticos (relevamiento §4).
+        if (item.label == _LABEL_ORDEN_TRASLADO
+                and egreso.medio_egreso in _MEDIOS_CON_ORDEN):
+            if datos_traslado is not None:
+                egreso.datos_traslado = datos_traslado
+            elif egreso.datos_traslado is None:
+                raise OrdenTrasladoRequiereDatos(
+                    "El ítem de orden de traslado requiere datos logísticos "
+                    "(destino, prestador, requerimientos). "
+                    "Incluya 'datos_traslado' en el request."
+                )
 
         item.done = True
         item.hora_marcado = _ahora()
@@ -333,6 +361,17 @@ class ServicioEgreso:
                 f"rol actual: '{rol.value}'."
             )
         egreso = await self._cargar_egreso_activo(session, egreso_id)
+
+        # Guard internacion_domiciliaria (ambulancia a domicilio — caso operativo real).
+        if (egreso.medio_egreso == "ambulancia"
+                and egreso.datos_traslado is not None
+                and egreso.datos_traslado.get("destino_tipo") == "domicilio"
+                and egreso.datos_traslado.get("internacion_domiciliaria") == "desconocido"):
+            raise InternacionDomiciliariaDesconocida(
+                "No se puede dar el OK administrativo: confirmar internación domiciliaria "
+                "antes del cierre (destino=domicilio, medio=ambulancia). "
+                "Editar datos de traslado con 'si' o 'no'."
+            )
 
         items = await self._listar_items(session, egreso.id)
         pendientes = [
@@ -545,6 +584,31 @@ class ServicioEgreso:
 
         await session.commit()
         return item
+
+    # ------------------------------------------------------------------ #
+    # actualizar_datos_traslado
+    # ------------------------------------------------------------------ #
+
+    async def actualizar_datos_traslado(
+        self,
+        session: AsyncSession,
+        egreso_id: uuid.UUID,
+        datos_traslado: dict,
+        rol: RolOperativo,
+        actor_nombre: str | None = None,
+    ) -> Egreso:
+        """Actualiza datos_traslado en el egreso. Permite correcciones post-marcado
+        (ej. admisión corrige dirección al teléfono). Egreso debe estar activo."""
+        egreso = await self._cargar_egreso_activo(session, egreso_id)
+        egreso.datos_traslado = datos_traslado
+        cama = await session.get(CamaGestion, egreso.cama_gestion_id)
+        session.add(self._hito(
+            egreso, cama, None, rol, actor_nombre,
+            "ATLAS_DATOS_TRASLADO_ACTUALIZADO",
+            {"datos_traslado": datos_traslado},
+        ))
+        await session.commit()
+        return egreso
 
     # ------------------------------------------------------------------ #
     # registrar_discrepancia

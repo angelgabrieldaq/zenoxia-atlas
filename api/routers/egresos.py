@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_egreso, get_session
 from api.schemas import (
+    ActualizarDatosTrasladoBody,
     AgregarNotaEgresoBody,
     ConfirmarSalidaFisicaBody,
     CrearEgresoBody,
@@ -42,7 +43,7 @@ from database.models import (
     NotaEgreso,
 )
 from domain.discharge_responsibility import computar_responsable
-from domain.egreso_service import MantenimientoPendiente, ServicioEgreso
+from domain.egreso_service import MantenimientoPendiente, ServicioEgreso, OrdenTrasladoRequiereDatos
 
 router = APIRouter(tags=["egresos"])
 
@@ -205,9 +206,11 @@ async def marcar_item_checklist(
 ):
     metadata = {"no_aplica": True} if body.no_aplica else None
     discrepancia = body.discrepancia.model_dump() if body.discrepancia else None
+    datos_traslado = body.datos_traslado.model_dump() if body.datos_traslado else None
     item = await egreso_svc.marcar_item(
         session, egreso_id, item_id, body.rol,
         actor_nombre=body.actor_nombre, metadata=metadata, discrepancia=discrepancia,
+        datos_traslado=datos_traslado,
     )
     return ItemChecklistEgresoOut.model_validate(item)
 
@@ -270,6 +273,20 @@ async def marcar_item_limpieza(
             autor=item.autor,
             liberacion_bloqueada="mantenimiento_pendiente",
         )
+
+
+@router.patch("/egresos/{egreso_id}/datos-traslado", response_model=EgresoOut)
+async def actualizar_datos_traslado(
+    egreso_id: uuid.UUID,
+    body: ActualizarDatosTrasladoBody,
+    session: AsyncSession = Depends(get_session),
+    egreso_svc: ServicioEgreso = Depends(get_egreso),
+):
+    egreso = await egreso_svc.actualizar_datos_traslado(
+        session, egreso_id, body.datos_traslado.model_dump(),
+        body.rol, actor_nombre=body.actor_nombre,
+    )
+    return EgresoOut.model_validate(egreso)
 
 
 @router.patch("/egresos/{egreso_id}/discrepancia", response_model=DiscrepanciaOut)

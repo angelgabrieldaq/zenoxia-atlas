@@ -440,6 +440,9 @@ class Egreso(Base):
     mantenimiento_requerido: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # Datos logísticos del traslado (ambulancia/derivacion). Estructura validada por
+    # DatosTraslado en api/schemas.py. Se persiste al marcar la orden médica.
+    datos_traslado: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # Anclas de eventos (NULL = todavía no pasó). `created_at` es la apertura
     # del proceso (no nulo); los demás se setean cuando el sub-evento ocurre.
     created_at: Mapped[datetime] = mapped_column(

@@ -716,3 +716,195 @@ async def test_admision_marca_supervision_con_discrepancia_sin_ejecucion_200(
     )
     assert r.status_code == 200
     assert r.json()["done"] is True
+
+
+# ------------------------------------------------------------------ #
+# Orden de traslado — ítem legal con datos logísticos (§4 relevamiento)
+# ------------------------------------------------------------------ #
+
+_DATOS_TRASLADO_VALIDOS = {
+    "destino_tipo": "sanatorio",
+    "destino_direccion": "Av. Rivadavia 1234, CABA",
+    "prestador": "Swiss Medical",
+    "medico_a_bordo": True,
+    "acompanante": False,
+    "oxigeno": True,
+    "accesibilidad_destino": "ascensor",
+    "internacion_domiciliaria": "no",
+}
+
+_DATOS_TRASLADO_DOMICILIO_DESCONOCIDO = {
+    "destino_tipo": "domicilio",
+    "destino_direccion": "Av. Corrientes 500, CABA",
+    "prestador": "OSDE",
+    "medico_a_bordo": False,
+    "acompanante": True,
+    "oxigeno": False,
+    "accesibilidad_destino": "escaleras",
+    "internacion_domiciliaria": "desconocido",
+}
+
+_DATOS_TRASLADO_DOMICILIO_SI = {**_DATOS_TRASLADO_DOMICILIO_DESCONOCIDO, "internacion_domiciliaria": "si"}
+
+
+async def _flujo_hasta_egreso_admin_ambulancia(
+    client: AsyncClient, session: AsyncSession, datos_traslado: dict | None = None
+) -> dict:
+    """Flujo egreso admin para medio ambulancia, manejando el ítem de orden de traslado."""
+    _, internacion = await _crear_setup(session, dni="40000001")
+    egreso = await _crear_egreso(client, internacion.id, "ambulancia")
+    egreso_id = egreso["id"]
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+
+    for item in det["items_checklist"]:
+        rol = _ROL_POR_RESPONSABLE.get(item["responsable"], "MEDICO")
+        body: dict = {"rol": rol}
+        if item["label"] == "Orden de traslado emitida por el médico":
+            body["datos_traslado"] = datos_traslado or _DATOS_TRASLADO_VALIDOS
+        r = await client.patch(
+            f"/egresos/{egreso_id}/checklist/{item['id']}", json=body,
+        )
+        assert r.status_code == 200, f"Fallo en item '{item['label']}': {r.text}"
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/egreso-admin", json={"rol": "ADMISION"},
+    )
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.mark.asyncio
+async def test_marcar_orden_traslado_sin_datos_422(
+    client: AsyncClient, session: AsyncSession
+):
+    """Marcar el ítem de orden sin datos_traslado debe retornar 422."""
+    _, internacion = await _crear_setup(session)
+    egreso = await _crear_egreso(client, internacion.id, "ambulancia")
+    det = (await client.get(f"/egresos/{egreso['id']}")).json()
+
+    item_orden = next(
+        i for i in det["items_checklist"]
+        if i["label"] == "Orden de traslado emitida por el médico"
+    )
+    r = await client.patch(
+        f"/egresos/{egreso['id']}/checklist/{item_orden['id']}",
+        json={"rol": "MEDICO"},  # sin datos_traslado
+    )
+    assert r.status_code == 422
+    assert "datos" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_marcar_orden_traslado_con_datos_200_y_persistido(
+    client: AsyncClient, session: AsyncSession
+):
+    """Marcar el ítem de orden con datos_traslado válidos → 200 y datos persistidos en egreso."""
+    _, internacion = await _crear_setup(session)
+    egreso = await _crear_egreso(client, internacion.id, "ambulancia")
+    egreso_id = egreso["id"]
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+
+    item_orden = next(
+        i for i in det["items_checklist"]
+        if i["label"] == "Orden de traslado emitida por el médico"
+    )
+    r = await client.patch(
+        f"/egresos/{egreso_id}/checklist/{item_orden['id']}",
+        json={"rol": "MEDICO", "datos_traslado": _DATOS_TRASLADO_VALIDOS},
+    )
+    assert r.status_code == 200
+    assert r.json()["done"] is True
+
+    # Verificar que datos_traslado quedó en el egreso
+    det2 = (await client.get(f"/egresos/{egreso_id}")).json()
+    dt = det2["datos_traslado"]
+    assert dt is not None
+    assert dt["destino_tipo"] == "sanatorio"
+    assert dt["oxigeno"] is True
+    assert dt["prestador"] == "Swiss Medical"
+
+
+@pytest.mark.asyncio
+async def test_ok_admin_ambulancia_domicilio_desconocido_409(
+    client: AsyncClient, session: AsyncSession
+):
+    """OK admin con ambulancia + destino=domicilio + internacion_domiciliaria=desconocido → 409."""
+    _, internacion = await _crear_setup(session, dni="40000002")
+    egreso = await _crear_egreso(client, internacion.id, "ambulancia")
+    egreso_id = egreso["id"]
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+
+    for item in det["items_checklist"]:
+        rol = _ROL_POR_RESPONSABLE.get(item["responsable"], "MEDICO")
+        body: dict = {"rol": rol}
+        if item["label"] == "Orden de traslado emitida por el médico":
+            body["datos_traslado"] = _DATOS_TRASLADO_DOMICILIO_DESCONOCIDO
+        r = await client.patch(
+            f"/egresos/{egreso_id}/checklist/{item['id']}", json=body,
+        )
+        assert r.status_code == 200, f"Fallo en '{item['label']}': {r.text}"
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/egreso-admin", json={"rol": "ADMISION"},
+    )
+    assert r.status_code == 409
+    assert "domiciliaria" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_ok_admin_ambulancia_domicilio_si_200(
+    client: AsyncClient, session: AsyncSession
+):
+    """OK admin con ambulancia + destino=domicilio + internacion_domiciliaria=si → 200."""
+    _, internacion = await _crear_setup(session, dni="40000003")
+    egreso = await _crear_egreso(client, internacion.id, "ambulancia")
+    egreso_id = egreso["id"]
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+
+    for item in det["items_checklist"]:
+        rol = _ROL_POR_RESPONSABLE.get(item["responsable"], "MEDICO")
+        body: dict = {"rol": rol}
+        if item["label"] == "Orden de traslado emitida por el médico":
+            body["datos_traslado"] = _DATOS_TRASLADO_DOMICILIO_SI
+        r = await client.patch(
+            f"/egresos/{egreso_id}/checklist/{item['id']}", json=body,
+        )
+        assert r.status_code == 200, f"Fallo en '{item['label']}': {r.text}"
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/egreso-admin", json={"rol": "ADMISION"},
+    )
+    assert r.status_code == 200
+    assert r.json()["estado"] == "egreso_admin"
+
+
+@pytest.mark.asyncio
+async def test_egreso_camina_no_tiene_item_orden(
+    client: AsyncClient, session: AsyncSession
+):
+    """El medio 'camina' no genera ítem de orden de traslado en el checklist."""
+    _, internacion = await _crear_setup(session, dni="40000004")
+    egreso = await _crear_egreso(client, internacion.id, "camina")
+    det = (await client.get(f"/egresos/{egreso['id']}")).json()
+
+    labels = [i["label"] for i in det["items_checklist"]]
+    assert "Orden de traslado emitida por el médico" not in labels
+
+
+@pytest.mark.asyncio
+async def test_patch_datos_traslado_200_y_persistido(
+    client: AsyncClient, session: AsyncSession
+):
+    """PATCH /egresos/{id}/datos-traslado permite actualizar datos post-marcado."""
+    _, internacion = await _crear_setup(session, dni="40000005")
+    egreso = await _crear_egreso(client, internacion.id, "ambulancia")
+    egreso_id = egreso["id"]
+
+    datos_nuevos = {**_DATOS_TRASLADO_VALIDOS, "destino_direccion": "Av. Santa Fe 9999"}
+    r = await client.patch(
+        f"/egresos/{egreso_id}/datos-traslado",
+        json={"rol": "ADMISION", "datos_traslado": datos_nuevos},
+    )
+    assert r.status_code == 200
+    assert r.json()["datos_traslado"]["destino_direccion"] == "Av. Santa Fe 9999"
+    assert r.json()["datos_traslado"]["prestador"] == "Swiss Medical"

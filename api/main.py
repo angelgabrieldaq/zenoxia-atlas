@@ -17,10 +17,12 @@ from domain.egreso_service import (
     EgresoEnEstadoTerminal,
     EgresoNoEncontrado,
     EjecucionPendiente,
+    InternacionDomiciliariaDesconocida,
     ItemNoEncontrado,
     ItemYaMarcado,
     MedioEgresoDesconocido,
     MotivoDiscrepanciaInvalido,
+    OrdenTrasladoRequiereDatos,
     SalidaFisicaSinOkAdmin,
 )
 from domain.reservation_service import ReservaTipoInvalido
@@ -142,6 +144,20 @@ async def handle_motivo_discrepancia_invalido(
     request: Request, exc: MotivoDiscrepanciaInvalido
 ):
     return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(OrdenTrasladoRequiereDatos)
+async def handle_orden_traslado_requiere_datos(
+    request: Request, exc: OrdenTrasladoRequiereDatos
+):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.exception_handler(InternacionDomiciliariaDesconocida)
+async def handle_internacion_domiciliaria_desconocida(
+    request: Request, exc: InternacionDomiciliariaDesconocida
+):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 # ------------------------------------------------------------------ #

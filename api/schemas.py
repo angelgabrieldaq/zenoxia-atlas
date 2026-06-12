@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from enum import Enum as PyEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -18,6 +19,46 @@ from database.enums import (
     TipoReversion,
 )
 from domain.state_machine import RolOperativo
+
+
+# ------------------------------------------------------------------ #
+# Datos logísticos de traslado
+# ------------------------------------------------------------------ #
+
+class DestinoTipo(str, PyEnum):
+    DOMICILIO    = "domicilio"
+    SANATORIO    = "sanatorio"
+    TERCER_NIVEL = "tercer_nivel"
+    GERIATRICO   = "geriatrico"
+    PSIQUIATRICO = "psiquiatrico"
+    OTRO         = "otro"
+
+
+class AccesibilidadDestino(str, PyEnum):
+    PLANTA_BAJA = "planta_baja"
+    ESCALERAS   = "escaleras"
+    ASCENSOR    = "ascensor"
+    NO_APLICA   = "no_aplica"
+
+
+class InternacionDomiciliaria(str, PyEnum):
+    SI          = "si"
+    NO          = "no"
+    DESCONOCIDO = "desconocido"
+
+
+class DatosTraslado(BaseModel):
+    """Datos logísticos del traslado para ambulancia/derivacion.
+    PROHIBIDO dato clínico: el diagnóstico vive en la orden física/HIS."""
+
+    destino_tipo: DestinoTipo
+    destino_direccion: str
+    prestador: str
+    medico_a_bordo: bool
+    acompanante: bool
+    oxigeno: bool
+    accesibilidad_destino: AccesibilidadDestino
+    internacion_domiciliaria: InternacionDomiciliaria
 
 
 # ------------------------------------------------------------------ #
@@ -243,6 +284,7 @@ class EgresoOut(BaseModel):
     estado: str
     medio_egreso: str
     mantenimiento_requerido: bool
+    datos_traslado: DatosTraslado | None = None
     created_at: datetime
     trabado_desde: datetime | None
     egreso_admin_at: datetime | None
@@ -283,6 +325,7 @@ class _DiscrepanciaOverride(BaseModel):
 class MarcarItemChecklistBody(_RolBase):
     no_aplica: bool = False
     discrepancia: _DiscrepanciaOverride | None = None
+    datos_traslado: DatosTraslado | None = None
 
 
 class OkAdministrativoBody(_RolBase):
@@ -305,6 +348,10 @@ class RegistrarDiscrepanciaBody(_RolBase):
 class AgregarNotaEgresoBody(_RolBase):
     tipo: str
     texto: str
+
+
+class ActualizarDatosTrasladoBody(_RolBase):
+    datos_traslado: DatosTraslado
 
 
 # ------------------------------------------------------------------ #
