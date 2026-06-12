@@ -263,6 +263,7 @@ async def marcar_item_limpieza(
         item = await session.get(ItemChecklistLimpieza, item_id)
         return MarcarLimpiezaOut(
             id=item.id,
+            codigo=item.codigo,
             label=item.label,
             done=item.done,
             hora_marcado=item.hora_marcado,
