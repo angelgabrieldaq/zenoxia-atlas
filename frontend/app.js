@@ -373,6 +373,10 @@ function renderEgresoPanel(egreso, intern, cama) {
     }
     grp.append(gbody);
     body.append(grp);
+
+    if (egreso.mantenimiento_requerido && egreso.limpieza_checklist.every(i => i.done)) {
+      body.append(el("div", { class: "banner-warn" }, "Liberación bloqueada: mantenimiento pendiente"));
+    }
   }
 
   // Discrepancias

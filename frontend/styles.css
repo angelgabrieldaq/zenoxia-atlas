@@ -683,6 +683,7 @@ legend {
 .hito-meta {
   font-size: var(--text-xs);
   color: var(--txt3);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Notas */
@@ -705,6 +706,7 @@ legend {
   font-size: var(--text-xs);
   color: var(--txt3);
   margin-top: 2px;
+  font-variant-numeric: tabular-nums;
 }
 
 .muted {
@@ -852,6 +854,11 @@ legend {
   font-size: var(--text-lg);
   line-height: 1;
   padding: 0 var(--gap-xs);
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* ───────────────────────── Responsive ───────────────────────── */
@@ -2221,6 +2228,8 @@ body {
   font-size: 9px;
 
   color: var(--txt3);
+
+  font-variant-numeric: tabular-nums;
 }
 
 .tl-event {
@@ -2285,6 +2294,8 @@ body {
   font-size: 9px;
 
   color: var(--txt3);
+
+  font-variant-numeric: tabular-nums;
 }
 
 .ri-text {
@@ -2311,6 +2322,14 @@ body {
   cursor: pointer;
 
   font-weight: 500;
+
+  min-height: 48px;
+
+  display: inline-flex;
+
+  align-items: center;
+
+  justify-content: center;
 }
 
 .btn-primary:hover {
@@ -2393,6 +2412,17 @@ body {
   color: var(--txt2);
 
   cursor: pointer;
+
+  position: relative;
+}
+.btn-sm::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 44px;
+  min-height: 44px;
 }
 
 .btn-sm:hover {
@@ -2435,6 +2465,20 @@ body {
   outline: none;
 
   border-color: var(--p-mid);
+}
+
+.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.banner-warn {
+  background: var(--s-warn-l);
+  border-left: 3px solid var(--s-warn-m);
+  padding: 9px 12px;
+  font-size: 11px;
+  color: var(--s-warn);
+  border-radius: 0 var(--r) var(--r) 0;
+  font-weight: 500;
 }
 
 .alert-box {
