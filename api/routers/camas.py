@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_checklist, get_notas, get_reservas, get_session, get_transiciones
@@ -85,7 +85,13 @@ async def detalle_cama(
     hitos_rows = (
         await session.execute(
             select(HitoAtlas)
-            .where(HitoAtlas.cama_gestion_id == cama_id)
+            .where(
+                HitoAtlas.cama_gestion_id == cama_id,
+                or_(
+                    HitoAtlas.internacion_id == cama.internacion_actual_id,
+                    HitoAtlas.internacion_id.is_(None),
+                ),
+            )
             .order_by(HitoAtlas.registrado_at.desc())
             .limit(50)
         )

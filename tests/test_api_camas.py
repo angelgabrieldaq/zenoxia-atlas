@@ -132,6 +132,65 @@ async def test_detalle_cama_devuelve_hitos_y_notas(
     assert "notas" in data
 
 
+async def test_hitos_filtrados_por_internacion_actual(
+    client: AsyncClient, session: AsyncSession
+):
+    """GET /camas/{id} solo devuelve hitos de la internación actual + hitos sin internación.
+    Hitos de internaciones anteriores de la misma cama no deben aparecer (traza contaminada)."""
+    from database.models import HitoAtlas
+    from database.enums import CategoriaInternacion
+
+    # Crear pacientes e internaciones en un solo flush para evitar UPDATE en cama
+    pac1 = PacienteLocal(dni="11111111", nombre="Ana", apellido="García")
+    pac2 = PacienteLocal(dni="22222222", nombre="Luis", apellido="Torres")
+    session.add_all([pac1, pac2])
+    await session.flush()
+
+    internacion1 = InternacionLocal(paciente_local_id=pac1.id, categoria=CategoriaInternacion.CLINICA)
+    internacion2 = InternacionLocal(paciente_local_id=pac2.id, categoria=CategoriaInternacion.CLINICA)
+    session.add_all([internacion1, internacion2])
+    await session.flush()
+
+    # Cama con internacion_actual_id ya seteada desde el INSERT (evita UPDATE + onupdate)
+    cama = CamaGestion(
+        nombre="H-01",
+        tipo=TipoCama.CAMA_INTERNACION,
+        sector="Clínica",
+        estado_gestion=EstadoCamaGestion.PROCESO_DE_ALTA,
+        internacion_actual_id=internacion2.id,
+    )
+    session.add(cama)
+    await session.flush()
+
+    h_viejo = HitoAtlas(
+        hito_codigo="ATLAS_EGRESO_ABIERTO",
+        cama_gestion_id=cama.id,
+        internacion_id=internacion1.id,
+        actor_rol="MEDICO",
+    )
+    h_actual = HitoAtlas(
+        hito_codigo="ATLAS_CAMA_PROCESO_DE_ALTA",
+        cama_gestion_id=cama.id,
+        internacion_id=internacion2.id,
+        actor_rol="MEDICO",
+    )
+    h_transicion = HitoAtlas(
+        hito_codigo="ATLAS_CAMA_DISPONIBLE",
+        cama_gestion_id=cama.id,
+        internacion_id=None,
+        actor_rol="LIMPIEZA",
+    )
+    session.add_all([h_viejo, h_actual, h_transicion])
+    await session.commit()
+
+    r = await client.get(f"/camas/{cama.id}")
+    assert r.status_code == 200
+    codigos = [h["hito_codigo"] for h in r.json()["hitos"]]
+    assert "ATLAS_CAMA_PROCESO_DE_ALTA" in codigos
+    assert "ATLAS_CAMA_DISPONIBLE" in codigos
+    assert "ATLAS_EGRESO_ABIERTO" not in codigos
+
+
 async def test_crear_nota_para_cama(client: AsyncClient, session: AsyncSession):
     cama = await _crear_cama(session)
     r = await client.post(
