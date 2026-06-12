@@ -10,11 +10,11 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 
 | Dimensión | Estado |
 |---|---|
-| **Tests** | **222 pasando** — suite completa verde (218 base + 4 nuevos: doble OK de limpieza) |
+| **Tests** | **228 pasando** — suite completa verde (222 base + 6 nuevos: orden de traslado) |
 | **Entorno** | Docker + PostgreSQL funcionando |
 | **Fase** | Capa 1 (gestión operativa del día) en producción |
 | **Backend** | FastAPI async + SQLAlchemy 2.0 + Alembic |
-| **Migraciones** | 12 versiones aplicadas (hasta `900995c` — codigo en item_checklist_limpieza) |
+| **Migraciones** | 13 versiones aplicadas (hasta `c7a8b9d` — datos_traslado en egreso) |
 
 ### 1.1 Archivos de tests (11 módulos)
 
@@ -296,6 +296,7 @@ Frontend de egreso completo. Último commit pusheado: `c8c29a1`.
 - Índice único parcial `uq_egreso_activo_por_internacion`
 - 218 tests pasando (baseline 12 jun 2026; aritmética: 219 pre-fix − 2 eliminados + 1 nuevo = 218)
 - 222 tests pasando (12 jun 2026; aritmética: 218 base + 4 nuevos = 222 — doble OK de limpieza, ver §9.3)
+- 228 tests pasando (12 jun 2026; aritmética: 222 base + 6 nuevos = 228 — orden de traslado, ver §9.4)
 
 **Frontend:**
 - Panel de egreso reactivo: checklist, limpieza, OK admin, salida física, discrepancias, notas
@@ -395,6 +396,30 @@ supervisa. No es una preferencia de diseño: es una cláusula contractual.
   HOTELERIA sin EJECUCION → 409, ADMISION con discrepancia → 200.
 - `ROLES_ESPERADOS` en `test_state_machine.py` actualizado.
 - Suite: **222/222 pasando**.
+
+### 9.4 Orden de traslado legal + datos logísticos — 12 jun 2026
+
+**Fundamento:** `docs/RELEVAMIENTO_OPERATIVO.md §4` + decisión del fundador (12 jun):
+el ítem "Orden de traslado" es requerido_legal=True para ambulancia y derivacion.
+El formulario ES el acto de transcribir la orden: sin datos logísticos no se puede marcar.
+
+**Cambios implementados (commits `8c09cf8` + `8fa2a3b`):**
+
+Backend:
+- Catálogo: `("medico", "Orden de traslado emitida por el médico", True)` en `ambulancia` y `derivacion`.
+- Modelo: campo `datos_traslado` JSONB nullable en `Egreso` (migración `c7a8b9d`).
+- Schema: `DatosTraslado` Pydantic validado con 3 enums (`DestinoTipo`, `AccesibilidadDestino`, `InternacionDomiciliaria`).
+  - `internacion_domiciliaria` tri-estado deliberado: `desconocido` es valor real del dominio, no null.
+- Guard `marcar_item`: item de orden requiere `datos_traslado` → 422 si ausente.
+- Guard `ok_administrativo`: ambulancia + domicilio + `internacion_domiciliaria=desconocido` → 409.
+- `PATCH /egresos/{id}/datos-traslado`: edición post-marcado (admisión corrige al teléfono).
+- 6 tests nuevos (222 → 228).
+
+Frontend:
+- Formulario modal al marcar el ítem de orden (8 campos, R2 hit targets 44px).
+- Banner persistente en "Iniciar egreso" (reactivo al medio) y en el panel del egreso mientras la orden esté pendiente.
+- `renderLimpiezaItem` diferenciado por `item.codigo`: SUPERVISION muestra "Pendiente: supervisión de hotelería" a LIMPIEZA.
+- 409 de `EjecucionPendiente` llega como toast vía `ApiError.detail`.
 
 ---
 
