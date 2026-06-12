@@ -79,8 +79,8 @@ TRANSICIONES: tuple[Transicion, ...] = (
     Transicion(
         origen=EstadoCamaGestion.LIMPIEZA_TERMINAL,
         destino=EstadoCamaGestion.DISPONIBLE,
-        roles=frozenset({RolOperativo.LIMPIEZA}),
-        nota="requiere aprobación supervisor",
+        roles=frozenset({RolOperativo.LIMPIEZA, RolOperativo.HOTELERIA, RolOperativo.ADMISION}),
+        nota="LIMPIEZA ejecuta ítem 1; HOTELERIA ejecuta ítem 2 (supervisor institucional); ADMISION con override",
     ),
     Transicion(
         origen=EstadoCamaGestion.DISPONIBLE,

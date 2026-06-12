@@ -16,6 +16,7 @@ from domain.egreso_service import (
     EgresoActivoYaExiste,
     EgresoEnEstadoTerminal,
     EgresoNoEncontrado,
+    EjecucionPendiente,
     ItemNoEncontrado,
     ItemYaMarcado,
     MedioEgresoDesconocido,
@@ -110,6 +111,11 @@ async def handle_egreso_en_estado_terminal(request: Request, exc: EgresoEnEstado
 
 @app.exception_handler(ItemYaMarcado)
 async def handle_item_ya_marcado(request: Request, exc: ItemYaMarcado):
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
+
+
+@app.exception_handler(EjecucionPendiente)
+async def handle_ejecucion_pendiente(request: Request, exc: EjecucionPendiente):
     return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 

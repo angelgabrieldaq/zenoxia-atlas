@@ -60,13 +60,18 @@ _HITO_NOTA_EGRESO = "ATLAS_EGRESO_NOTA"
 # (postgresql_where = "estado IN ('info','bloqueado','egreso_admin')").
 ESTADOS_ACTIVOS: tuple[str, ...] = ("info", "bloqueado", "egreso_admin")
 
-# Catálogo fijo del checklist de limpieza terminal (§2.4 del modelo). Tabla
-# análoga al de medio_egreso (constante en código, no DB) y por la misma razón:
-# rara vez cambia por institución.
-_CATALOGO_LIMPIEZA: tuple[str, ...] = (
-    "Cama limpiada según protocolo",
-    "Control final — cama OK",
+# Catálogo fijo del checklist de limpieza terminal (§2.4 del modelo, relevamiento §3).
+# Tabla análoga al de medio_egreso (constante en código, no DB): rara vez cambia.
+# Formato: (codigo, label). El código da identidad estable sin depender del texto.
+#   EJECUCION   — ejecuta la empresa tercerizada: LIMPIEZA o HOTELERIA
+#   SUPERVISION — control institucional: SOLO HOTELERIA (frontera contractual)
+_CATALOGO_LIMPIEZA: tuple[tuple[str, str], ...] = (
+    ("EJECUCION", "Cama limpiada según protocolo"),
+    ("SUPERVISION", "Control final — cama OK"),
 )
+
+_COD_SUPERVISION = "SUPERVISION"
+_COD_EJECUCION = "EJECUCION"
 
 
 # ────────────────────────────────────────────────────────────────────────── #
@@ -129,6 +134,11 @@ class MantenimientoPendiente(Exception):
 
 class MotivoDiscrepanciaInvalido(Exception):
     pass
+
+
+class EjecucionPendiente(Exception):
+    """Se intentó marcar el ítem de SUPERVISION antes de que EJECUCION esté done.
+    No se puede supervisar una limpieza que no terminó (relevamiento §3)."""
 
 
 # ────────────────────────────────────────────────────────────────────────── #
@@ -372,9 +382,10 @@ class ServicioEgreso:
             )
 
         egreso.salida_fisica_at = _ahora()
-        for label in _CATALOGO_LIMPIEZA:
+        for codigo, label in _CATALOGO_LIMPIEZA:
             session.add(ItemChecklistLimpieza(
                 egreso_id=egreso.id,
+                codigo=codigo,
                 label=label,
             ))
 
@@ -411,10 +422,15 @@ class ServicioEgreso:
         Egreso (``estado='liberado'``) y transiciona ``LIMPIEZA_TERMINAL →
         DISPONIBLE``, todo en una transacción.
 
-        * Roles normales: LIMPIEZA, HOTELERIA.
-        * Override ADMISION con ``discrepancia {motivo, nota}``: permitido.
-          Sin discrepancia: ``RolNoAutorizado``.
+        Roles por ítem (frontera contractual — relevamiento §3):
+        * EJECUCION: LIMPIEZA o HOTELERIA (ejecuta la empresa tercerizada).
+        * SUPERVISION: solo HOTELERIA (control institucional). LIMPIEZA → 403.
+        * Override ADMISION con ``discrepancia {motivo, nota}``: permitido en
+          ambos ítems, incluso si EJECUCION no está done (urgencia operativa).
         * Cualquier otro rol: ``RolNoAutorizado``.
+
+        Orden de ejecución: SUPERVISION requiere EJECUCION done previamente.
+        Excepción: ADMISION override no está sujeto al orden.
 
         Guard de mantenimiento: si todos done y ``mantenimiento_requerido=True``
         lanza ``MantenimientoPendiente`` (Opción A: sin transiciones nuevas en FSM).
@@ -447,6 +463,31 @@ class ServicioEgreso:
             raise ItemYaMarcado(
                 f"El item de limpieza '{item.label}' ya estaba marcado."
             )
+
+        # Guard de SUPERVISION (ítem de control institucional).
+        if item.codigo == _COD_SUPERVISION:
+            if rol == RolOperativo.LIMPIEZA:
+                raise RolNoAutorizado(
+                    "El ítem de supervisión ('Control final — cama OK') es de control "
+                    "institucional: solo HOTELERIA puede marcarlo (o ADMISION con "
+                    "discrepancia). La empresa tercerizada (LIMPIEZA) ejecuta el "
+                    "ítem de ejecución, no el de supervisión."
+                )
+            if not es_override:
+                ejecucion = (
+                    await session.execute(
+                        select(ItemChecklistLimpieza).where(
+                            ItemChecklistLimpieza.egreso_id == egreso.id,
+                            ItemChecklistLimpieza.codigo == _COD_EJECUCION,
+                        )
+                    )
+                ).scalar_one_or_none()
+                if ejecucion is None or not ejecucion.done:
+                    raise EjecucionPendiente(
+                        "No se puede marcar el ítem de supervisión antes de que "
+                        "la limpieza de ejecución esté completada. "
+                        "Primero debe marcarse 'Cama limpiada según protocolo'."
+                    )
 
         item.done = True
         item.hora_marcado = _ahora()

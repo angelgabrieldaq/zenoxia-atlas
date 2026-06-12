@@ -328,14 +328,22 @@ async def test_e2e_egreso_camina(client: AsyncClient, session: AsyncSession):
     det2 = (await client.get(f"/egresos/{egreso_id}")).json()
     assert len(det2["limpieza_checklist"]) == 2
 
-    # Marcar limpieza
-    for item in det2["limpieza_checklist"]:
-        r = await client.patch(
-            f"/egresos/{egreso_id}/limpieza/{item['id']}",
-            json={"rol": "LIMPIEZA"},
-        )
-        assert r.status_code == 200
-        assert r.json()["liberacion_bloqueada"] is None
+    # Marcar limpieza: EJECUCION=LIMPIEZA, SUPERVISION=HOTELERIA (frontera contractual)
+    items_limpieza = det2["limpieza_checklist"]
+    ejecucion = next(i for i in items_limpieza if i["codigo"] == "EJECUCION")
+    supervision = next(i for i in items_limpieza if i["codigo"] == "SUPERVISION")
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{ejecucion['id']}",
+        json={"rol": "LIMPIEZA"},
+    )
+    assert r.status_code == 200
+    assert r.json()["liberacion_bloqueada"] is None
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{supervision['id']}",
+        json={"rol": "HOTELERIA"},
+    )
+    assert r.status_code == 200
+    assert r.json()["liberacion_bloqueada"] is None
 
     # Estado final
     det3 = (await client.get(f"/egresos/{egreso_id}")).json()
@@ -399,22 +407,26 @@ async def test_limpieza_bloqueada_por_mantenimiento(
     # Salida física
     await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
 
-    # Marcar items de limpieza — el último debe devolver liberacion_bloqueada
+    # Marcar items de limpieza — el de supervisión (HOTELERIA) dispara el bloqueo
     det = (await client.get(f"/egresos/{egreso_id}")).json()
     items_limpieza = det["limpieza_checklist"]
-    assert len(items_limpieza) > 0
+    assert len(items_limpieza) == 2
 
-    for i, item in enumerate(items_limpieza):
-        r = await client.patch(
-            f"/egresos/{egreso_id}/limpieza/{item['id']}",
-            json={"rol": "LIMPIEZA"},
-        )
-        assert r.status_code == 200
-        if i < len(items_limpieza) - 1:
-            assert r.json()["liberacion_bloqueada"] is None
-        else:
-            assert r.json()["liberacion_bloqueada"] == "mantenimiento_pendiente"
-            assert r.json()["done"] is True
+    ejecucion = next(i for i in items_limpieza if i["codigo"] == "EJECUCION")
+    supervision = next(i for i in items_limpieza if i["codigo"] == "SUPERVISION")
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{ejecucion['id']}",
+        json={"rol": "LIMPIEZA"},
+    )
+    assert r.status_code == 200
+    assert r.json()["liberacion_bloqueada"] is None
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{supervision['id']}",
+        json={"rol": "HOTELERIA"},
+    )
+    assert r.status_code == 200
+    assert r.json()["liberacion_bloqueada"] == "mantenimiento_pendiente"
+    assert r.json()["done"] is True
 
     # El egreso NO pasó a liberado (cama sigue en LIMPIEZA_TERMINAL)
     det_final = (await client.get(f"/egresos/{egreso_id}")).json()
@@ -457,11 +469,17 @@ async def test_get_egreso_activo_liberado_no_cuenta_404(
 
     # Marcar todos los ítems de limpieza → egreso pasa a 'liberado'
     det = (await client.get(f"/egresos/{egreso_id}")).json()
-    for item in det["limpieza_checklist"]:
-        await client.patch(
-            f"/egresos/{egreso_id}/limpieza/{item['id']}",
-            json={"rol": "LIMPIEZA"},
-        )
+    items_limp = det["limpieza_checklist"]
+    ejecucion = next(i for i in items_limp if i["codigo"] == "EJECUCION")
+    supervision = next(i for i in items_limp if i["codigo"] == "SUPERVISION")
+    await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{ejecucion['id']}",
+        json={"rol": "LIMPIEZA"},
+    )
+    await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{supervision['id']}",
+        json={"rol": "HOTELERIA"},
+    )
 
     # Egreso liberado no debe aparecer como activo
     r = await client.get(f"/internaciones/{internacion.id}/egreso-activo")
@@ -583,7 +601,7 @@ async def test_admision_override_checklist_con_discrepancia_200(
 async def test_admision_override_limpieza_con_discrepancia_200(
     client: AsyncClient, session: AsyncSession
 ):
-    """ADMISION con discrepancia puede marcar item de limpieza terminal."""
+    """ADMISION con discrepancia puede marcar item de limpieza terminal (item EJECUCION)."""
     _, internacion = await _crear_setup(session)
     egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
     egreso_id = egreso_data["id"]
@@ -591,13 +609,109 @@ async def test_admision_override_limpieza_con_discrepancia_200(
     await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
 
     det = (await client.get(f"/egresos/{egreso_id}")).json()
-    item_limpieza = det["limpieza_checklist"][0]
+    ejecucion = next(i for i in det["limpieza_checklist"] if i["codigo"] == "EJECUCION")
 
     r = await client.patch(
-        f"/egresos/{egreso_id}/limpieza/{item_limpieza['id']}",
+        f"/egresos/{egreso_id}/limpieza/{ejecucion['id']}",
         json={
             "rol": "ADMISION",
             "discrepancia": {"motivo": "demora_responsable", "nota": "Personal de limpieza no disponible"},
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["done"] is True
+
+
+# ------------------------------------------------------------------ #
+# Doble OK — roles diferenciados por ítem (frontera contractual §3)
+# ------------------------------------------------------------------ #
+
+async def test_limpieza_marca_supervision_403(client: AsyncClient, session: AsyncSession):
+    """LIMPIEZA no puede marcar el ítem de supervisión — ese ítem es de control
+    institucional (HOTELERIA). Frontera contractual: tercerizada ejecuta,
+    institución controla."""
+    _, internacion = await _crear_setup(session)
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    supervision = next(i for i in det["limpieza_checklist"] if i["codigo"] == "SUPERVISION")
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{supervision['id']}",
+        json={"rol": "LIMPIEZA"},
+    )
+    assert r.status_code == 403
+
+
+async def test_hoteleria_marca_supervision_con_ejecucion_done_200(
+    client: AsyncClient, session: AsyncSession
+):
+    """HOTELERIA puede marcar SUPERVISION cuando EJECUCION ya está done."""
+    _, internacion = await _crear_setup(session)
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    ejecucion = next(i for i in det["limpieza_checklist"] if i["codigo"] == "EJECUCION")
+    supervision = next(i for i in det["limpieza_checklist"] if i["codigo"] == "SUPERVISION")
+
+    await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{ejecucion['id']}",
+        json={"rol": "LIMPIEZA"},
+    )
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{supervision['id']}",
+        json={"rol": "HOTELERIA"},
+    )
+    assert r.status_code == 200
+    assert r.json()["done"] is True
+
+
+async def test_hoteleria_marca_supervision_sin_ejecucion_409(
+    client: AsyncClient, session: AsyncSession
+):
+    """HOTELERIA no puede marcar SUPERVISION si EJECUCION está pendiente.
+    No se puede supervisar una limpieza que no terminó."""
+    _, internacion = await _crear_setup(session)
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    supervision = next(i for i in det["limpieza_checklist"] if i["codigo"] == "SUPERVISION")
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{supervision['id']}",
+        json={"rol": "HOTELERIA"},
+    )
+    assert r.status_code == 409
+
+
+async def test_admision_marca_supervision_con_discrepancia_sin_ejecucion_200(
+    client: AsyncClient, session: AsyncSession
+):
+    """ADMISION override con discrepancia puede marcar SUPERVISION aunque EJECUCION
+    esté pendiente (urgencia operativa — la discrepancia documenta el motivo)."""
+    _, internacion = await _crear_setup(session)
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    supervision = next(i for i in det["limpieza_checklist"] if i["codigo"] == "SUPERVISION")
+
+    r = await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{supervision['id']}",
+        json={
+            "rol": "ADMISION",
+            "discrepancia": {
+                "motivo": "demora_responsable",
+                "nota": "Urgencia de cama — se libera sin supervisión de hotelería",
+            },
         },
     )
     assert r.status_code == 200

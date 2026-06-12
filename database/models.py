@@ -572,6 +572,7 @@ class ItemChecklistLimpieza(Base):
         nullable=False,
         index=True,
     )
+    codigo: Mapped[str] = mapped_column(String(20), nullable=False)
     label: Mapped[str] = mapped_column(String(200), nullable=False)
     done: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     hora_marcado: Mapped[datetime | None] = mapped_column(

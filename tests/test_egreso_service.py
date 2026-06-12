@@ -393,10 +393,14 @@ async def test_e2e_camina_crea_marca_admin_salida_limpieza_libera(session, servi
         )
     )).scalars().all()
     assert len(items_limpieza) == 2
-    for it in items_limpieza:
-        await servicio.marcar_item_limpieza(
-            session, egreso.id, it.id, RolOperativo.LIMPIEZA,
-        )
+    ejecucion = next(i for i in items_limpieza if i.codigo == "EJECUCION")
+    supervision = next(i for i in items_limpieza if i.codigo == "SUPERVISION")
+    await servicio.marcar_item_limpieza(
+        session, egreso.id, ejecucion.id, RolOperativo.LIMPIEZA,
+    )
+    await servicio.marcar_item_limpieza(
+        session, egreso.id, supervision.id, RolOperativo.HOTELERIA,
+    )
 
     await session.refresh(egreso)
     await session.refresh(cama)
@@ -459,10 +463,14 @@ async def test_e2e_defuncion_con_metadata_cocheria(session, servicio):
             ItemChecklistLimpieza.egreso_id == egreso.id
         )
     )).scalars().all()
-    for it in items_limpieza:
-        await servicio.marcar_item_limpieza(
-            session, egreso.id, it.id, RolOperativo.LIMPIEZA,
-        )
+    ejecucion = next(i for i in items_limpieza if i.codigo == "EJECUCION")
+    supervision = next(i for i in items_limpieza if i.codigo == "SUPERVISION")
+    await servicio.marcar_item_limpieza(
+        session, egreso.id, ejecucion.id, RolOperativo.LIMPIEZA,
+    )
+    await servicio.marcar_item_limpieza(
+        session, egreso.id, supervision.id, RolOperativo.HOTELERIA,
+    )
     await session.refresh(egreso)
     await session.refresh(cama)
     assert egreso.estado == "liberado"
@@ -495,14 +503,16 @@ async def test_liberacion_con_mantenimiento_requerido_lanza_y_no_libera(session,
             ItemChecklistLimpieza.egreso_id == egreso.id
         )
     )).scalars().all()
-    # Primer item se marca sin problema.
+    ejecucion = next(i for i in items_limpieza if i.codigo == "EJECUCION")
+    supervision = next(i for i in items_limpieza if i.codigo == "SUPERVISION")
+    # Item de ejecución se marca sin problema.
     await servicio.marcar_item_limpieza(
-        session, egreso.id, items_limpieza[0].id, RolOperativo.LIMPIEZA,
+        session, egreso.id, ejecucion.id, RolOperativo.LIMPIEZA,
     )
-    # Al cerrar el último item, el guard de mantenimiento lanza.
+    # Al cerrar el item de supervisión, el guard de mantenimiento lanza.
     with pytest.raises(MantenimientoPendiente):
         await servicio.marcar_item_limpieza(
-            session, egreso.id, items_limpieza[1].id, RolOperativo.LIMPIEZA,
+            session, egreso.id, supervision.id, RolOperativo.HOTELERIA,
         )
     # Rollback: la cama queda en LIMPIEZA_TERMINAL y el egreso NO liberado.
     await session.refresh(egreso)

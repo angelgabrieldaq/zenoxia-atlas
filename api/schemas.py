@@ -207,6 +207,7 @@ class ItemChecklistLimpiezaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    codigo: str
     label: str
     done: bool
     hora_marcado: datetime | None
@@ -261,6 +262,7 @@ class MarcarLimpiezaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
+    codigo: str
     label: str
     done: bool
     hora_marcado: datetime | None
