@@ -10,7 +10,7 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 
 | Dimensión | Estado |
 |---|---|
-| **Tests** | **219 pasando** — suite completa verde |
+| **Tests** | **218 pasando** — suite completa verde (baseline verificado con `--collect-only`) |
 | **Entorno** | Docker + PostgreSQL funcionando |
 | **Fase** | Capa 1 (gestión operativa del día) en producción |
 | **Backend** | FastAPI async + SQLAlchemy 2.0 + Alembic |
@@ -241,7 +241,7 @@ zenoxia-atlas/
 │   ├── core_sync.py    ← interfaz de sincronización con zenoxia-core
 │   └── noop_sync.py    ← stub para tests sin core
 ├── alembic/            ← 11 migraciones aplicadas
-├── tests/              ← 218 tests pasando
+├── tests/              ← 218 tests pasando (baseline verificado)
 └── docs/               ← documentación de diseño
 ```
 
@@ -294,7 +294,7 @@ Frontend de egreso completo. Último commit pusheado: `c8c29a1`.
 - Override de ADMISION con `Discrepancia` obligatoria (`motivo` + `nota`); motivo `"demora_responsable"` en catálogo
 - Fix **traza contaminada**: `GET /camas/{id}` filtra hitos por `internacion_actual_id OR NULL` (solo ve la internación vigente)
 - Índice único parcial `uq_egreso_activo_por_internacion`
-- 219 tests pasando
+- 218 tests pasando (baseline 12 jun 2026; aritmética: 219 pre-fix − 2 eliminados + 1 nuevo = 218)
 
 **Frontend:**
 - Panel de egreso reactivo: checklist, limpieza, OK admin, salida física, discrepancias, notas
@@ -327,8 +327,52 @@ Devuelve: `[{ cama_nombre, egreso_id, internacion_id, items_pendientes: [...] }]
 
 ---
 
-## 9. DOCUMENTOS RELACIONADOS
+## 9. CIERRE — 12 jun 2026 (commit bf64ed3)
 
+### 9.1 Bug crítico cerrado — invariante de limpieza garantizada
+
+**Problema:** `POST /camas/{id}/alta-fisica` ejecutaba la transición FSM directamente
+sin crear `Egreso` ni checklist de limpieza → camas en `LIMPIEZA_TERMINAL` sin
+trazabilidad (caso real registrado).
+
+**Fix:**
+- Endpoint `POST alta-fisica` → **410 Gone** (mensaje explicativo con el camino correcto).
+- **Invariante garantizada:** el único camino HTTP a `LIMPIEZA_TERMINAL` es
+  `PATCH /egresos/{egreso_id}/salida-fisica`, que crea egreso + checklist + hito.
+- Seed corregido: `LIMPIEZA_TERMINAL` eliminado del patrón demo (requiere egreso real).
+- 3 camas huérfanas del seed anterior (A-114, C-304, UCO-06) reparadas a `DISPONIBLE`
+  con hito `ATLAS_CAMA_DISPONIBLE` de auditoría (`scripts/repair_orfanas.py`).
+- Tests: 218/218 pasando; `test_alta_fisica_endpoint_obsoleto_devuelve_410` como
+  contrato de no-regresión.
+
+### 9.2 Relevamiento operativo incorporado
+
+`docs/RELEVAMIENTO_OPERATIVO.md` — fuente primaria de dominio: hotelería (4 sub-roles),
+agilización de altas (flujo real: WhatsApp + Excel + planilla → Atlas), limpieza
+tercerizada (frontera contractual LIMPIEZA/HOTELERIA confirmada), circuito de
+derivaciones, documentación legal formal, cadena del colchón y actor BIOINGENIERIA.
+
+**Decisiones cerradas por el relevamiento** (ver §7 del doc):
+- Doble OK limpieza: item 2 = solo HOTELERIA (frontera contractual, no de diseño).
+- Orden médica → `requerido_legal=True` (pendiente confirmación final del fundador).
+- Cola de hotelería filtra por sector/piso.
+
+**Backlog que emerge del relevamiento:**
+
+| Item | Origen | Estado |
+|---|---|---|
+| Guard item 2 solo-HOTELERIA + métrica espera de supervisión | §3 rel. | Próximo mini-commit |
+| Item "orden de derivación" `requerido_legal=True` + campos destino/prestador | §4 rel. | Esperando confirmación |
+| Flag prioridad de admisión en cola de limpieza | §1 rel. | Tramo pantallas por rol |
+| Flag ADS + checklist de pronóstico nocturno | §2 rel. | Backlog |
+| Bloqueo con motivo (reparación/cuarentena/activo) + actor BIOINGENIERIA | §6 rel. | Mini-tramo C4 |
+| Circuito documental / empaquetado del egreso | §5 rel. | Doc de diseño, backlog |
+
+---
+
+## 10. DOCUMENTOS RELACIONADOS
+
+- `docs/RELEVAMIENTO_OPERATIVO.md` — fuente primaria de dominio: flujos reales de hotelería, limpieza, derivaciones y documentación legal.
 - `docs/MODELO_EGRESO_CERRADO.md` — diseño detallado del modelo de egreso (entidades, FSM, validaciones).
 - `docs/DISENO_MODULO_ATLAS.md` — visión de las 3 capas del módulo.
 - `docs/DISENO_TECNICO_ATLAS_CAPA1A.md` — especificación técnica Capa 1.
