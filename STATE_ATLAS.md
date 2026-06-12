@@ -10,11 +10,11 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 
 | Dimensión | Estado |
 |---|---|
-| **Tests** | **218 pasando** — suite completa verde (baseline verificado con `--collect-only`) |
+| **Tests** | **222 pasando** — suite completa verde (218 base + 4 nuevos: doble OK de limpieza) |
 | **Entorno** | Docker + PostgreSQL funcionando |
 | **Fase** | Capa 1 (gestión operativa del día) en producción |
 | **Backend** | FastAPI async + SQLAlchemy 2.0 + Alembic |
-| **Migraciones** | 11 versiones aplicadas (hasta `3504e9c` — uq_egreso_activo_por_internacion) |
+| **Migraciones** | 12 versiones aplicadas (hasta `900995c` — codigo en item_checklist_limpieza) |
 
 ### 1.1 Archivos de tests (11 módulos)
 
@@ -295,6 +295,7 @@ Frontend de egreso completo. Último commit pusheado: `c8c29a1`.
 - Fix **traza contaminada**: `GET /camas/{id}` filtra hitos por `internacion_actual_id OR NULL` (solo ve la internación vigente)
 - Índice único parcial `uq_egreso_activo_por_internacion`
 - 218 tests pasando (baseline 12 jun 2026; aritmética: 219 pre-fix − 2 eliminados + 1 nuevo = 218)
+- 222 tests pasando (12 jun 2026; aritmética: 218 base + 4 nuevos = 222 — doble OK de limpieza, ver §9.3)
 
 **Frontend:**
 - Panel de egreso reactivo: checklist, limpieza, OK admin, salida física, discrepancias, notas
@@ -361,12 +362,39 @@ derivaciones, documentación legal formal, cadena del colchón y actor BIOINGENI
 
 | Item | Origen | Estado |
 |---|---|---|
-| Guard item 2 solo-HOTELERIA + métrica espera de supervisión | §3 rel. | Próximo mini-commit |
+| Guard item 2 solo-HOTELERIA + métrica espera de supervisión | §3 rel. | **Cerrado — commits 65ea24b + 0e42295 (ver §9.3)** |
 | Item "orden de derivación" `requerido_legal=True` + campos destino/prestador | §4 rel. | Esperando confirmación |
 | Flag prioridad de admisión en cola de limpieza | §1 rel. | Tramo pantallas por rol |
 | Flag ADS + checklist de pronóstico nocturno | §2 rel. | Backlog |
 | Bloqueo con motivo (reparación/cuarentena/activo) + actor BIOINGENIERIA | §6 rel. | Mini-tramo C4 |
 | Circuito documental / empaquetado del egreso | §5 rel. | Doc de diseño, backlog |
+
+### 9.3 Doble OK de limpieza con roles diferenciados — 12 jun 2026
+
+**Fundamento:** `docs/RELEVAMIENTO_OPERATIVO.md §3` — frontera contractual confirmada:
+la empresa tercerizada (LIMPIEZA) ejecuta la limpieza, la institución (HOTELERIA) la
+supervisa. No es una preferencia de diseño: es una cláusula contractual.
+
+**Cambios implementados (commits `65ea24b` + `2d9f062` + `0e42295`):**
+
+- `ItemChecklistLimpieza` recibe campo `codigo` (String 20, NOT NULL) para identidad
+  estable de los ítems, independiente del orden SQL.
+- `_CATALOGO_LIMPIEZA` cambia de tuple de strings a tuple de `(codigo, label)`:
+  - `EJECUCION` — "Cama limpiada según protocolo" → LIMPIEZA o HOTELERIA
+  - `SUPERVISION` — "Control final — cama OK" → **solo HOTELERIA** (o ADMISION con discrepancia)
+- Guard en `marcar_item_limpieza`: LIMPIEZA no puede marcar SUPERVISION → 403.
+- Guard de orden: SUPERVISION no puede marcarse antes de EJECUCION done → 409.
+  ADMISION con discrepancia bypasea el orden (caso de urgencia operativa).
+- FSM `LIMPIEZA_TERMINAL → DISPONIBLE`: roles ampliados a `{LIMPIEZA, HOTELERIA, ADMISION}`
+  (HOTELERIA es ahora quien dispara la transición final al marcar SUPERVISION).
+- Migración `900995c` aplica el campo `codigo` con `server_default=''` + `alter_column`.
+- Nuevo handler global: `EjecucionPendiente → 409` en `api/main.py`.
+
+**Tests:**
+- 4 tests nuevos en `test_api_egresos.py`: LIMPIEZA → 403, HOTELERIA con EJECUCION done → 200,
+  HOTELERIA sin EJECUCION → 409, ADMISION con discrepancia → 200.
+- `ROLES_ESPERADOS` en `test_state_machine.py` actualizado.
+- Suite: **222/222 pasando**.
 
 ---
 
