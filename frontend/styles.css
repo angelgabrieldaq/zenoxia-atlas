@@ -4,7 +4,7 @@
  */
 
 /* ── Reset / Base ──────────────────────────────────────────────── */
-*::after {
+*, *::before, *::after {
   box-sizing: border-box;
 }
 body {
@@ -896,7 +896,7 @@ legend {
   cursor: pointer;
   background: var(--bg2);
   color: var(--txt);
-  transition: ;
+  transition:;
 }
 .btn:hover {
   filter: brightness(0.97);
@@ -1763,8 +1763,8 @@ legend {
 }
 @media (max-width: 600px) {
   .drawer {
-    width: 100vw;
+    width: 100%;
 
-    max-width: 100vw;
+    max-width: 100%;
   }
 }
