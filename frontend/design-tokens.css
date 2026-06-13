@@ -1,19 +1,26 @@
 /*
  * ═══════════════════════════════════════════════════════════════
- * ZENOXIA — Design Tokens v2.2
- * Fuente de verdad compartida: Kairos · Cordis
+ * ZENOXIA — Design Tokens v3.0
+ * Fuente de verdad compartida: Atlas · Kairos · Cordis · Gia · Core
  *
  * HISTORIAL
  * v1.0  Kairos — colores base, semánticos, radius
  * v2.0  Cordis — tipografía, iconografía, triage, estados de cama
  * v2.1  Unificación — estados de equipo, traslados, worklist, IA
- * Migración de tokens locales de command-center y camilleros
  * v2.2  Accesibilidad y táctil (Atlas) — foco visible, tabular nums
+ * v3.0  Unificación plena — Figtree/Noto Sans, escala clínica optimizada,
+ *        breakpoints móviles, tokens faltantes en Gia
+ *
+ * TIPOGRAFÍA
+ * Agregar en el <head> de cada pantalla antes de este CSS:
+ * <link rel="preconnect" href="https://fonts.googleapis.com">
+ * <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+ * <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@300;400;500;600;700&family=Noto+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
  *
  * USO
- * 1. Copiar el bloque :root completo al <style> de cada pantalla.
+ * 1. Referenciar este archivo como <link rel="stylesheet" href="design-tokens.css">
  * 2. Para íconos: incluir kairos-icons.svg al inicio del <body>.
- * Usar con: <svg><use href="#ki-nombre"/></svg>
+ *    Usar con: <svg><use href="#ki-nombre"/></svg>
  * 3. Nunca hardcodear colores, tamaños ni fuentes fuera de este bloque.
  *
  * ───────────────────────────────────────────────────────────────
@@ -22,19 +29,20 @@
  * 1.  PRIMARIO        Azul royal — branding, acciones
  * 2.  NEUTROS         Fondos, texto, bordes
  * 3.  SEMÁNTICOS      OK / WARN / ERR / INFO
- * 4.  TRIAGE          Niveles N1–N5
+ * 4.  TRIAGE          Niveles N1–N5 (Cordis)
  * 5.  ESTADOS CAMA    Ciclo hotelero de boxes y camas
  * 6.  ESTADOS EQUIPO  Equipamiento médico (TC, RM, etc.)
  * 7.  TRASLADOS       Cola dinámica de camilleros
  * 8.  CARGA LABORAL   Nivel de carga por operador
  * 9.  WORKLIST        Estados de estudios (imágenes)
- * 10.  IA              Gradiente de asistencia cognitiva
- * 11.  SLA             Tiempos de respuesta clínicos
- * 12.  TIPOGRAFÍA      Familias, tamaños, pesos
- * 13.  ICONOGRAFÍA     Trazo, tamaños
- * 14.  ESPACIADO       Radios, gaps, padding
- * 15.  ACCESIBILIDAD   Foco visible, tabular nums
- * 16.  TÁCTIL          Hit targets para tablets
+ * 10. IA              Gradiente de asistencia cognitiva
+ * 11. SLA             Tiempos de respuesta clínicos
+ * 12. TIPOGRAFÍA      Familias, escala clínica optimizada, pesos
+ * 13. ICONOGRAFÍA     Trazo, tamaños
+ * 14. ESPACIADO       Radios, gaps, padding
+ * 15. ACCESIBILIDAD   Foco visible, tabular nums
+ * 16. TÁCTIL          Hit targets para tablets y guantes
+ * 17. BREAKPOINTS     Referencia de puntos de quiebre responsivos
  *
  * ───────────────────────────────────────────────────────────────
  * REGLAS DE USO
@@ -72,261 +80,200 @@
 :root {
   /* ─────────────────────────────────────────────────────────────
      1. PRIMARIO — Azul royal
-     Branding Zenoxia. Kairos y Cordis comparten estos valores.
+     Branding Zenoxia. Compartido por todos los módulos.
   ───────────────────────────────────────────────────────────── */
-  --p-light: #ebf2ff; /* fills, fondos de badge, card activa       */
-  --p-mid: #a3c0f8; /* bordes de badge, separadores              */
-  --p: #2b57d9; /* botones, íconos primarios, links activos  */
-  --p-dark: #1a3faa; /* topbar, logo, nav activo, texto activo    */
+  --p-light:  #ebf2ff; /* fills, fondos de badge, card activa       */
+  --p-mid:    #a3c0f8; /* bordes de badge, separadores              */
+  --p:        #2b57d9; /* botones, íconos primarios, links activos  */
+  --p-dark:   #1a3faa; /* topbar, logo, nav activo, texto activo    */
   --p-darker: #112880; /* azul más profundo, barras de progreso     */
 
   /* ─────────────────────────────────────────────────────────────
      2. NEUTROS — Fondos, texto, bordes
   ───────────────────────────────────────────────────────────── */
-  --bg: #ffffff; /* cards, modales, panels              */
-  --bg2: #f5f4f0; /* inputs, fondos de sección, filas    */
-  --bg3: #f0efea; /* fondo del body                      */
-  --txt: #1a1a18; /* texto principal                     */
-  --txt2: #5f5e5a; /* texto secundario                    */
-  --txt3: #888780; /* labels, placeholders, tertiary      */
-  --brd: rgba(0, 0, 0, 0.1); /* borde sutil                         */
-  --brd2: rgba(0, 0, 0, 0.18); /* borde medio — inputs, énfasis       */
+  --bg:   #ffffff;           /* cards, modales, panels              */
+  --bg2:  #f5f4f0;           /* inputs, fondos de sección, filas    */
+  --bg3:  #f0efea;           /* fondo del body                      */
+  --txt:  #1a1a18;           /* texto principal                     */
+  --txt2: #5f5e5a;           /* texto secundario                    */
+  --txt3: #888780;           /* labels, placeholders, tertiary      */
+  --brd:  rgba(0,0,0,0.10); /* borde sutil                         */
+  --brd2: rgba(0,0,0,0.18); /* borde medio — inputs, énfasis       */
 
   /* ─────────────────────────────────────────────────────────────
      3. SEMÁNTICOS — Estados del sistema
-     Uso genérico en toda la plataforma.
-     Para estados específicos de dominio, usar secciones 4–9.
   ───────────────────────────────────────────────────────────── */
+  --s-ok:         #0f6e56; /* confirmado, validado, completado          */
+  --s-ok-l:       #e1f5ee; /* fondo badge OK                            */
+  --s-ok-m:       #9fe1cb; /* borde badge OK                            */
 
-  --s-ok: #0f6e56; /* confirmado, validado, completado          */
-  --s-ok-l: #e1f5ee; /* fondo badge OK                            */
-  --s-ok-m: #9fe1cb; /* borde badge OK                            */
+  --s-warn:       #633806; /* pendiente, atención leve                  */
+  --s-warn-l:     #faeeda; /* fondo badge WARN                          */
+  --s-warn-m:     #ef9f27; /* borde / ícono badge WARN                  */
 
-  --s-warn: #633806; /* pendiente, atención leve                  */
-  --s-warn-l: #faeeda; /* fondo badge WARN                          */
-  --s-warn-m: #ef9f27; /* borde / ícono badge WARN                  */
-
-  --s-err: #791f1f; /* bloqueante, alergia, crítico              */
-  --s-err-l: #fcebeb; /* fondo badge ERR                           */
-  --s-err-m: #e24b4a; /* borde / ícono badge ERR                   */
-  --s-err-text: #a32d2d; /* rojo de texto para deltas/retrasos        */
+  --s-err:        #791f1f; /* bloqueante, alergia, crítico              */
+  --s-err-l:      #fcebeb; /* fondo badge ERR                           */
+  --s-err-m:      #e24b4a; /* borde / ícono badge ERR                   */
+  --s-err-text:   #a32d2d; /* rojo de texto para deltas/retrasos        */
   --s-err-soft-m: #f7c1c1; /* borde rojo suave, flags no bloqueantes    */
 
-  --s-info: #0c447c; /* informativo neutro, estado secundario     */
-  --s-info-l: #e6f1fb; /* fondo badge INFO                          */
-  --s-info-m: #b5d4f4; /* borde badge INFO                          */
+  --s-info:       #0c447c; /* informativo neutro, estado secundario     */
+  --s-info-l:     #e6f1fb; /* fondo badge INFO                          */
+  --s-info-m:     #b5d4f4; /* borde badge INFO                          */
 
   /* ─────────────────────────────────────────────────────────────
      4. TRIAGE — Colores por nivel de prioridad clínica
-     Solo para Cordis (Guardia). Kairos no usa triage.
+     Solo para Cordis (Guardia). Kairos y Atlas no usan triage.
      Convención: --tN = texto/ícono · --tN-l = fondo · --tN-brd = borde
   ───────────────────────────────────────────────────────────── */
+  --t1:     #c0392b; /* N1 Resucitación — Rojo       */
+  --t1-l:   rgba(192,57,43,0.10);
+  --t1-brd: rgba(192,57,43,0.25);
 
-  --t1: #c0392b; /* N1 Resucitación — Rojo       */
-  --t1-l: rgba(192, 57, 43, 0.1);
-  --t1-brd: rgba(192, 57, 43, 0.25);
+  --t2:     #d4680a; /* N2 Emergencia — Naranja      */
+  --t2-l:   rgba(212,104,10,0.10);
+  --t2-brd: rgba(212,104,10,0.25);
 
-  --t2: #d4680a; /* N2 Emergencia — Naranja      */
-  --t2-l: rgba(212, 104, 10, 0.1);
-  --t2-brd: rgba(212, 104, 10, 0.25);
+  --t3:     #a07c00; /* N3 Urgencia — Amarillo osc.  */
+  --t3-l:   rgba(160,124,0,0.10);
+  --t3-brd: rgba(160,124,0,0.25);
 
-  --t3: #a07c00; /* N3 Urgencia — Amarillo osc.  */
-  --t3-l: rgba(160, 124, 0, 0.1);
-  --t3-brd: rgba(160, 124, 0, 0.25);
+  --t4:     #2e7d4f; /* N4 Menor — Verde             */
+  --t4-l:   rgba(46,125,79,0.10);
+  --t4-brd: rgba(46,125,79,0.25);
 
-  --t4: #2e7d4f; /* N4 Menor — Verde             */
-  --t4-l: rgba(46, 125, 79, 0.1);
-  --t4-brd: rgba(46, 125, 79, 0.25);
-
-  --t5: #1565a8; /* N5 No urgente — Azul         */
-  --t5-l: rgba(21, 101, 168, 0.1);
-  --t5-brd: rgba(21, 101, 168, 0.25);
+  --t5:     #1565a8; /* N5 No urgente — Azul         */
+  --t5-l:   rgba(21,101,168,0.10);
+  --t5-brd: rgba(21,101,168,0.25);
 
   /* ─────────────────────────────────────────────────────────────
      5. ESTADOS DE CAMA — Ciclo hotelero
-     Kairos: habitaciones prequirúrgicas y recuperación.
-     Cordis: boxes de guardia.
+     Atlas: internación general. Kairos: prequirúrgico/recuperación. Cordis: boxes de guardia.
      Convención: base (texto/ícono) · -l (fondo) · -m (borde)
   ───────────────────────────────────────────────────────────── */
-
-  --cama-libre: #0f6e56;
-  --cama-libre-l: #e1f5ee;
-  --cama-libre-m: #9fe1cb;
-  --cama-ocup: #1a3faa;
-  --cama-ocup-l: #ebf2ff;
-  --cama-ocup-m: #a3c0f8;
-  --cama-alta: #7b3fa0;
-  --cama-alta-l: #f3e8ff;
-  --cama-alta-m: #c9a0e0;
-  --cama-limp: #b45309;
-  --cama-limp-l: #fef3c7;
-  --cama-limp-m: #fcd34d;
-  --cama-lista: #0e7490;
-  --cama-lista-l: #e0f7fa;
-  --cama-lista-m: #67e8f9;
-  --cama-bloq: #4b4b4b;
-  --cama-bloq-l: #f0f0f0;
-  --cama-bloq-m: #aaaaaa;
+  --cama-libre:    #0f6e56; --cama-libre-l:   #e1f5ee; --cama-libre-m:   #9fe1cb;
+  --cama-ocup:     #1a3faa; --cama-ocup-l:    #ebf2ff; --cama-ocup-m:    #a3c0f8;
+  --cama-alta:     #7b3fa0; --cama-alta-l:    #f3e8ff; --cama-alta-m:    #c9a0e0;
+  --cama-limp:     #b45309; --cama-limp-l:    #fef3c7; --cama-limp-m:    #fcd34d;
+  --cama-lista:    #0e7490; --cama-lista-l:   #e0f7fa; --cama-lista-m:   #67e8f9;
+  --cama-bloq:     #4b4b4b; --cama-bloq-l:    #f0f0f0; --cama-bloq-m:    #aaaaaa;
 
   /* ─────────────────────────────────────────────────────────────
      6. ESTADOS DE EQUIPO — Equipamiento médico
      Cordis Imágenes: estado de TC, RM, sala de rayos, etc.
-     Convención: base · -l (fondo) · -m (borde)
   ───────────────────────────────────────────────────────────── */
-
-  --eq-libre: #0f6e56;
-  --eq-libre-l: #e1f5ee;
-  --eq-libre-m: #9fe1cb;
-  --eq-uso: #2b57d9;
-  --eq-uso-l: #ebf2ff;
-  --eq-uso-m: #a3c0f8;
-  --eq-limp: #b45309;
-  --eq-limp-l: #fef3c7;
-  --eq-limp-m: #fcd34d;
-  --eq-fuera: #4b4b4b;
-  --eq-fuera-l: #f0f0f0;
-  --eq-fuera-m: #aaaaaa;
+  --eq-libre: #0f6e56; --eq-libre-l: #e1f5ee; --eq-libre-m: #9fe1cb;
+  --eq-uso:   #2b57d9; --eq-uso-l:   #ebf2ff; --eq-uso-m:   #a3c0f8;
+  --eq-limp:  #b45309; --eq-limp-l:  #fef3c7; --eq-limp-m:  #fcd34d;
+  --eq-fuera: #4b4b4b; --eq-fuera-l: #f0f0f0; --eq-fuera-m: #aaaaaa;
 
   /* ─────────────────────────────────────────────────────────────
      7. TRASLADOS — Cola dinámica de camilleros
-     Kairos y Cordis Camilleros.
-     Estados del ciclo de vida de un traslado.
-     Convención: base · -l (fondo) · -m (borde)
   ───────────────────────────────────────────────────────────── */
-
-  --tr-pend: #633806;
-  --tr-pend-l: #faeeda;
-  --tr-pend-m: #ef9f27;
-  --tr-asig: #0c447c;
-  --tr-asig-l: #e6f1fb;
-  --tr-asig-m: #b5d4f4;
-  --tr-curso: #2b57d9;
-  --tr-curso-l: #ebf2ff;
-  --tr-curso-m: #a3c0f8;
-  --tr-done: #0f6e56;
-  --tr-done-l: #e1f5ee;
-  --tr-done-m: #9fe1cb;
-  --tr-urg: #791f1f;
-  --tr-urg-l: #fcebeb;
-  --tr-urg-m: #e24b4a;
+  --tr-pend:  #633806; --tr-pend-l:  #faeeda; --tr-pend-m:  #ef9f27;
+  --tr-asig:  #0c447c; --tr-asig-l:  #e6f1fb; --tr-asig-m:  #b5d4f4;
+  --tr-curso: #2b57d9; --tr-curso-l: #ebf2ff; --tr-curso-m: #a3c0f8;
+  --tr-done:  #0f6e56; --tr-done-l:  #e1f5ee; --tr-done-m:  #9fe1cb;
+  --tr-urg:   #791f1f; --tr-urg-l:   #fcebeb; --tr-urg-m:   #e24b4a;
 
   /* ─────────────────────────────────────────────────────────────
-     8. IDENTIFICACIÓN DE EQUIPAMIENTO — Tipo de camilla / recurso
-     Color por tipo de equipo requerido en un traslado.
-     Solo valor base (sin -l/-m) — uso decorativo, no semántico.
+     8. IDENTIFICACIÓN DE EQUIPAMIENTO
   ───────────────────────────────────────────────────────────── */
-
-  --equip-silla: #7b3fa0; /* silla de ruedas                     */
+  --equip-silla:   #7b3fa0; /* silla de ruedas                     */
   --equip-camilla: #0e7490; /* camilla estándar o con barandas     */
   --equip-oxigeno: #b45309; /* O₂ portátil                         */
-  --equip-tc: #0c447c; /* traslado a TC                       */
-  --equip-rm: #791f1f; /* traslado a RM                       */
+  --equip-tc:      #0c447c; /* traslado a TC                       */
+  --equip-rm:      #791f1f; /* traslado a RM                       */
 
   /* ─────────────────────────────────────────────────────────────
      8B. CARGA LABORAL — Nivel de carga por operador
-     Usado en paneles de coordinación (camilleros, enfermeros).
-     Convención: base · -l (fondo badge)
   ───────────────────────────────────────────────────────────── */
-
-  --carga-leve: #0f6e56;
-  --carga-leve-l: #e1f5ee;
-  --carga-mod: #a07c00;
-  --carga-mod-l: #fef9e0;
-  --carga-alta: #d4680a;
-  --carga-alta-l: #fef3c7;
-  --carga-limite: #c0392b;
-  --carga-limite-l: #fcebeb;
+  --carga-leve:    #0f6e56; --carga-leve-l:   #e1f5ee;
+  --carga-mod:     #a07c00; --carga-mod-l:    #fef9e0;
+  --carga-alta:    #d4680a; --carga-alta-l:   #fef3c7;
+  --carga-limite:  #c0392b; --carga-limite-l: #fcebeb;
 
   /* ─────────────────────────────────────────────────────────────
      9. WORKLIST — Estados de estudios de imágenes
-     Cordis Imágenes: ciclo de vida de un estudio (TC, RM, Rx).
-     Convención: base · -l (fondo)
   ───────────────────────────────────────────────────────────── */
-
-  --ws-pending: #888780;
-  --ws-pending-l: #f0efea;
-  --ws-executing: #2b57d9;
-  --ws-executing-l: #ebf2ff;
-  --ws-approval: #a07c00;
-  --ws-approval-l: #faeeda;
-  --ws-approved: #0f6e56;
-  --ws-approved-l: #e1f5ee;
-  --ws-delivered: #5f5e5a;
-  --ws-delivered-l: #f5f4f0;
+  --ws-pending:   #888780; --ws-pending-l:   #f0efea;
+  --ws-executing: #2b57d9; --ws-executing-l: #ebf2ff;
+  --ws-approval:  #a07c00; --ws-approval-l:  #faeeda;
+  --ws-approved:  #0f6e56; --ws-approved-l:  #e1f5ee;
+  --ws-delivered: #5f5e5a; --ws-delivered-l: #f5f4f0;
 
   /* ─────────────────────────────────────────────────────────────
      10. IA — Asistencia cognitiva
-     Gradiente de degradado para indicar sugerencia de IA.
-     Usar en bordes, backgrounds sutiles, no en texto.
-     Siempre con indicación visible de que es sugerencia IA,
-     nunca como decisión clínica autónoma (RN-04).
+     Siempre con indicación visible de que es sugerencia IA.
+     Nunca toma decisiones clínicas autónomas (RN-04).
   ───────────────────────────────────────────────────────────── */
-
   --ai-from: #1a3faa; /* inicio del gradiente — azul profundo      */
-  --ai-to: #6366f1; /* fin del gradiente — violeta               */
+  --ai-to:   #6366f1; /* fin del gradiente — violeta               */
 
   /* ─────────────────────────────────────────────────────────────
      11. SLA — Tiempos de respuesta clínicos (minutos)
      Valores numéricos usados como thresholds, no como colores.
-     Combinar con tokens de triage para colorear el estado SLA.
   ───────────────────────────────────────────────────────────── */
-
-  --sla-n1: 0; /* N1 Resucitación — atención inmediata         */
-  --sla-n2: 15; /* N2 Emergencia — ≤15 min                      */
-  --sla-n3: 30; /* N3 Urgencia — ≤30 min                        */
+  --sla-n1: 0;   /* N1 Resucitación — atención inmediata         */
+  --sla-n2: 15;  /* N2 Emergencia — ≤15 min                      */
+  --sla-n3: 30;  /* N3 Urgencia — ≤30 min                        */
   --sla-n4: 120; /* N4 Menor — ≤2 hs                             */
   --sla-n5: 240; /* N5 No urgente — ≤4 hs                        */
 
-  --sla-urg: #791f1f;
-  --sla-urg-l: #fcebeb;
-  --sla-urg-m: #e24b4a;
-  --sla-amb: #0c447c;
-  --sla-amb-l: #e6f1fb;
-  --sla-amb-m: #b5d4f4;
+  --sla-urg: #791f1f; --sla-urg-l: #fcebeb; --sla-urg-m: #e24b4a;
+  --sla-amb: #0c447c; --sla-amb-l: #e6f1fb; --sla-amb-m: #b5d4f4;
 
-  /* 12. TIPOGRAFÍA (Escala Clínica Optimizada) */
-  --font-sans: system-ui, -apple-system, sans-serif;
-  --font-mono: "Courier New", Courier, monospace;
+  /* ─────────────────────────────────────────────────────────────
+     12. TIPOGRAFÍA — Escala Clínica Optimizada
+     Fuente primaria: Figtree (headings, UI) / Noto Sans (body)
+     Requiere Google Fonts en el <head> (ver arriba).
+     Escala mínima: 11px para labels, nunca menos en UI clínica.
+  ───────────────────────────────────────────────────────────── */
+  --font-sans:  'Figtree', 'Noto Sans', system-ui, -apple-system, sans-serif;
+  --font-body:  'Noto Sans', 'Figtree', system-ui, -apple-system, sans-serif;
+  --font-mono:  'Courier New', Courier, monospace;
 
-  --text-2xs: 11px;
-  --text-xs: 12px;
-  --text-sm: 13px;
-  --text-md: 14px;
-  --text-lg: 16px;
-  --text-xl: 18px;
-  --text-2xl: 24px;
-  --text-3xl: 32px;
+  --text-2xs: 11px; /* badges pequeños, meta (mínimo permitido)     */
+  --text-xs:  12px; /* etiquetas secundarias, timestamps             */
+  --text-sm:  13px; /* labels de campos, texto de soporte            */
+  --text-md:  14px; /* texto base de UI                              */
+  --text-lg:  16px; /* cuerpo de texto principal (mobile safe)       */
+  --text-xl:  18px; /* subtítulos, encabezados de sección            */
+  --text-2xl: 24px; /* títulos de pantalla                           */
+  --text-3xl: 32px; /* display, cifras clave                         */
 
-  --fw-normal: 400;
-  --fw-medium: 500;
+  --fw-normal:   400;
+  --fw-medium:   500;
   --fw-semibold: 600;
-  --fw-bold: 700;
-  --fw-black: 800;
+  --fw-bold:     700;
+  --fw-black:    800;
+
+  --lh-tight:   1.25; /* headings                                     */
+  --lh-base:    1.5;  /* body text (WCAG)                             */
+  --lh-relaxed: 1.75; /* texto largo / instrucciones clínicas         */
 
   /* ─────────────────────────────────────────────────────────────
      13. ICONOGRAFÍA — SVG outline, stroke="currentColor"
      Referencia: <svg class="ki ki-md"><use href="#ki-nombre"/></svg>
   ───────────────────────────────────────────────────────────── */
+  --icon-xs:  12px;
+  --icon-sm:  14px;
+  --icon-md:  18px;
+  --icon-lg:  22px;
+  --icon-xl:  32px;
 
-  --icon-xs: 12px;
-  --icon-sm: 14px;
-  --icon-md: 18px;
-  --icon-lg: 22px;
-  --icon-xl: 32px;
-
-  --icon-stroke-thin: 1.2px;
-  --icon-stroke: 1.4px;
+  --icon-stroke-thin:   1.2px;
+  --icon-stroke:        1.4px;
   --icon-stroke-medium: 1.6px;
-  --icon-stroke-thick: 2px;
+  --icon-stroke-thick:  2px;
 
   /* ─────────────────────────────────────────────────────────────
      14. ESPACIADO Y RADIO
   ───────────────────────────────────────────────────────────── */
-
-  --r-xs: 4px;
-  --r: 8px;
-  --r-lg: 12px;
-  --r-xl: 16px;
+  --r-xs:   4px;
+  --r:      8px;
+  --r-lg:   12px;
+  --r-xl:   16px;
   --r-full: 999px;
 
   --gap-xs: 4px;
@@ -343,26 +290,57 @@
   /* ─────────────────────────────────────────────────────────────
      15. ACCESIBILIDAD — WCAG 2.2 / Ley 26.653
   ───────────────────────────────────────────────────────────── */
-
-  --focus-ring: #ffeb3b;
+  --focus-ring:       #ffeb3b;
   --focus-ring-inner: #1a1a18;
-  --focus-width: 3px;
-  --focus-offset: 2px;
+  --focus-width:      3px;
+  --focus-offset:     2px;
 
   /* ─────────────────────────────────────────────────────────────
-     16. TÁCTIL — hit targets (guantes, tablets)
+     16. TÁCTIL — hit targets (guantes, tablets, móvil)
   ───────────────────────────────────────────────────────────── */
+  --tap-min:         44px; /* WCAG 2.5.5 — mínimo recomendado          */
+  --tap-min-destr:   48px; /* acciones destructivas: más holgura        */
+  --tap-gap-destr:   16px; /* separación entre acciones destructivas    */
 
-  --tap-min: 44px;
-  --tap-min-destr: 48px;
-  --tap-gap-destr: 16px;
+  /* ─────────────────────────────────────────────────────────────
+     17. BREAKPOINTS — Referencia (usar en responsive.css con @media)
+     Valores documentados aquí; aplicar con @media en responsive.css.
+     Diseño mobile-first: estilos base = móvil, @media = expansión.
+  ───────────────────────────────────────────────────────────── */
+  --bp-sm:  375px;  /* smartphones pequeños                        */
+  --bp-md:  768px;  /* tablets portrait                            */
+  --bp-lg:  1024px; /* tablets landscape / laptop                  */
+  --bp-xl:  1440px; /* desktop wide                                */
 }
 
-/*
- * ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+ * BASE RESPONSIVA — Mobile-first defaults
+ * ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 100%;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--text-md);
+  line-height: var(--lh-base);
+  color: var(--txt);
+  background: var(--bg3);
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ═══════════════════════════════════════════════════════════════
  * CLASES UTILITARIAS DE ÍCONOS Y ACCESIBILIDAD
- * ═══════════════════════════════════════════════════════════════
- */
+ * ═══════════════════════════════════════════════════════════════ */
 
 .ki {
   display: inline-flex;
@@ -372,63 +350,26 @@
   color: currentColor;
 }
 
-.ki-xs {
-  width: var(--icon-xs);
-  height: var(--icon-xs);
-}
-.ki-sm {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-}
-.ki-md {
-  width: var(--icon-md);
-  height: var(--icon-md);
-}
-.ki-lg {
-  width: var(--icon-lg);
-  height: var(--icon-lg);
-}
-.ki-xl {
-  width: var(--icon-xl);
-  height: var(--icon-xl);
-}
+.ki-xs  { width: var(--icon-xs);  height: var(--icon-xs);  }
+.ki-sm  { width: var(--icon-sm);  height: var(--icon-sm);  }
+.ki-md  { width: var(--icon-md);  height: var(--icon-md);  }
+.ki-lg  { width: var(--icon-lg);  height: var(--icon-lg);  }
+.ki-xl  { width: var(--icon-xl);  height: var(--icon-xl);  }
 
-.ki-primary {
-  color: var(--p);
-}
-.ki-ok {
-  color: var(--s-ok);
-}
-.ki-warn {
-  color: var(--s-warn-m);
-}
-.ki-err {
-  color: var(--s-err-m);
-}
-.ki-info {
-  color: var(--s-info);
-}
-.ki-muted {
-  color: var(--txt3);
-}
+.ki-primary { color: var(--p); }
+.ki-ok      { color: var(--s-ok); }
+.ki-warn    { color: var(--s-warn-m); }
+.ki-err     { color: var(--s-err-m); }
+.ki-info    { color: var(--s-info); }
+.ki-muted   { color: var(--txt3); }
 
-.ki-t1 {
-  color: var(--t1);
-}
-.ki-t2 {
-  color: var(--t2);
-}
-.ki-t3 {
-  color: var(--t3);
-}
-.ki-t4 {
-  color: var(--t4);
-}
-.ki-t5 {
-  color: var(--t5);
-}
+.ki-t1 { color: var(--t1); }
+.ki-t2 { color: var(--t2); }
+.ki-t3 { color: var(--t3); }
+.ki-t4 { color: var(--t4); }
+.ki-t5 { color: var(--t5); }
 
-/* Foco visible global */
+/* Foco visible global — WCAG 2.4.11 */
 :focus-visible {
   outline: var(--focus-width) solid var(--focus-ring);
   outline-offset: var(--focus-offset);
@@ -439,14 +380,19 @@
 .num {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+  font-family: var(--font-mono);
 }
 
 /* Área táctil mínima */
-.tap {
-  min-width: var(--tap-min);
-  min-height: var(--tap-min);
-}
-.tap-destr {
-  min-width: var(--tap-min-destr);
-  min-height: var(--tap-min-destr);
+.tap       { min-width: var(--tap-min);      min-height: var(--tap-min); }
+.tap-destr { min-width: var(--tap-min-destr); min-height: var(--tap-min-destr); }
+
+/* Reducción de movimiento */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
