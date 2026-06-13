@@ -355,6 +355,46 @@ class ActualizarDatosTrasladoBody(_RolBase):
 
 
 # ------------------------------------------------------------------ #
+# Listado de egresos (endpoints de pantallas por rol)
+# ------------------------------------------------------------------ #
+
+class EgresoListaInternacion(BaseModel):
+    paciente_nombre: str
+    paciente_dni: str
+    cama_codigo: str
+    cama_sector: str
+
+
+class EgresoListaItem(BaseModel):
+    id: uuid.UUID
+    internacion: EgresoListaInternacion
+    medio_egreso: str
+    estado: str
+    responsable_actual: dict | None
+    trabado_desde: datetime | None
+    minutos_trabado: float | None
+    egreso_admin_at: datetime | None
+    salida_fisica_at: datetime | None
+    datos_traslado: DatosTraslado | None = None
+    created_at: datetime
+
+
+class EgresoPendienteItem(BaseModel):
+    egreso_id: uuid.UUID
+    tarea: str
+    cama: str
+    sector: str
+    paciente: str
+    paciente_dni: str
+    medio_egreso: str
+    minutos_trabado: float | None
+    # Seteados solo para ítems de limpieza (LIMPIEZA/HOTELERIA)
+    item_id: uuid.UUID | None = None
+    item_label: str | None = None
+    item_codigo: str | None = None
+
+
+# ------------------------------------------------------------------ #
 # Respuesta de error estándar
 # ------------------------------------------------------------------ #
 

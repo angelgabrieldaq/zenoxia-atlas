@@ -26,7 +26,7 @@ from domain.discharge_catalog import CATALOGO_CHECKLIST_EGRESO
 
 load_dotenv()
 
-_DATABASE_URL = os.environ["DATABASE_URL"]
+_DATABASE_URL = os.environ["DATABASE_URL_TEST"]
 _engine = create_async_engine(_DATABASE_URL, poolclass=NullPool)
 _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 
@@ -908,3 +908,226 @@ async def test_patch_datos_traslado_200_y_persistido(
     assert r.status_code == 200
     assert r.json()["datos_traslado"]["destino_direccion"] == "Av. Santa Fe 9999"
     assert r.json()["datos_traslado"]["prestador"] == "Swiss Medical"
+
+
+# ------------------------------------------------------------------ #
+# GET /egresos — lista del día
+# ------------------------------------------------------------------ #
+
+@pytest.mark.asyncio
+async def test_lista_egresos_del_dia(client: AsyncClient, session: AsyncSession):
+    """Dos egresos creados hoy aparecen en la lista y tienen la estructura correcta."""
+    _, internacion1 = await _crear_setup(session, dni="50000001", nombre_cama="L-01")
+    _, internacion2 = await _crear_setup(session, dni="50000002", nombre_cama="L-02")
+    await _crear_egreso(client, internacion1.id)
+    await _crear_egreso(client, internacion2.id)
+
+    r = await client.get("/egresos")
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 2
+
+    item = data[0]
+    assert "id" in item
+    assert "internacion" in item
+    assert "cama_codigo" in item["internacion"]
+    assert "cama_sector" in item["internacion"]
+    assert "paciente_nombre" in item["internacion"]
+    assert "responsable_actual" in item
+    assert "medio_egreso" in item
+    assert item["estado"] == "info"
+
+
+@pytest.mark.asyncio
+async def test_lista_egresos_filtro_activos_y_liberados(
+    client: AsyncClient, session: AsyncSession
+):
+    """estado=activos y estado=liberados filtran correctamente."""
+    _, internacion = await _crear_setup(session, dni="50000003")
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    ejecucion = next(i for i in det["limpieza_checklist"] if i["codigo"] == "EJECUCION")
+    supervision = next(i for i in det["limpieza_checklist"] if i["codigo"] == "SUPERVISION")
+    await client.patch(f"/egresos/{egreso_id}/limpieza/{ejecucion['id']}", json={"rol": "LIMPIEZA"})
+    await client.patch(f"/egresos/{egreso_id}/limpieza/{supervision['id']}", json={"rol": "HOTELERIA"})
+
+    r_activos = await client.get("/egresos?estado=activos")
+    assert r_activos.status_code == 200
+    assert len(r_activos.json()) == 0
+
+    r_liberados = await client.get("/egresos?estado=liberados")
+    assert r_liberados.status_code == 200
+    assert len(r_liberados.json()) == 1
+    assert r_liberados.json()[0]["estado"] == "liberado"
+
+
+@pytest.mark.asyncio
+async def test_lista_egresos_fecha_pasada_devuelve_vacio(
+    client: AsyncClient, session: AsyncSession
+):
+    """Filtro por fecha de ayer no devuelve egresos creados hoy."""
+    from datetime import date, timedelta
+
+    _, internacion = await _crear_setup(session, dni="50000004")
+    await _crear_egreso(client, internacion.id)
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    r = await client.get(f"/egresos?fecha={yesterday}")
+    assert r.status_code == 200
+    assert len(r.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_lista_egresos_orden_trabados_primero(
+    client: AsyncClient, session: AsyncSession
+):
+    """Egreso con trabado_desde aparece antes que egreso sin bloqueo."""
+    from datetime import datetime, timedelta, timezone
+
+    _, internacion1 = await _crear_setup(session, dni="50000010", nombre_cama="T-01")
+    _, internacion2 = await _crear_setup(session, dni="50000011", nombre_cama="T-02")
+    e1_data = await _crear_egreso(client, internacion1.id)
+    e2_data = await _crear_egreso(client, internacion2.id)
+
+    # Marcar e2 como trabado directo en DB
+    e2 = await session.get(Egreso, uuid.UUID(e2_data["id"]))
+    e2.trabado_desde = datetime.now(timezone.utc) - timedelta(hours=2)
+    await session.commit()
+
+    r = await client.get("/egresos")
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 2
+    assert data[0]["id"] == e2_data["id"], "trabado debe ser primero"
+    assert data[0]["minutos_trabado"] is not None
+    assert data[1]["id"] == e1_data["id"]
+    assert data[1]["minutos_trabado"] is None
+
+
+# ------------------------------------------------------------------ #
+# GET /egresos/pendientes — cola por rol
+# ------------------------------------------------------------------ #
+
+@pytest.mark.asyncio
+async def test_pendientes_rol_invalido_422(client: AsyncClient):
+    """Rol desconocido retorna 422 con mensaje descriptivo."""
+    r = await client.get("/egresos/pendientes?rol=FANTASMA")
+    assert r.status_code == 422
+    assert "rol" in r.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_pendientes_rol_medico_aparece_solo_para_su_rol(
+    client: AsyncClient, session: AsyncSession
+):
+    """Egreso con responsable MEDICO aparece en cola MEDICO, no en ENFERMERIA."""
+    _, internacion = await _crear_setup(session, dni="50000005")
+    await _crear_egreso(client, internacion.id, "camina")
+
+    r = await client.get("/egresos/pendientes?rol=MEDICO")
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) >= 1
+    assert all("egreso_id" in p and "tarea" in p and "cama" in p for p in data)
+
+    # ENFERMERIA no tiene trabajo (médico tiene la pelota)
+    r2 = await client.get("/egresos/pendientes?rol=ENFERMERIA")
+    assert r2.status_code == 200
+    assert len(r2.json()) == 0
+
+
+@pytest.mark.asyncio
+async def test_pendientes_filtro_sector(client: AsyncClient, session: AsyncSession):
+    """sector= filtra la cola por sector de la cama."""
+    _, internacion1 = await _crear_setup(session, dni="50000006", nombre_cama="C-01")
+
+    paciente2 = PacienteLocal(dni="50000007", nombre="Carlos", apellido="Ruiz")
+    session.add(paciente2)
+    await session.commit()
+    internacion2 = InternacionLocal(
+        paciente_local_id=paciente2.id, categoria=CategoriaInternacion.CLINICA,
+    )
+    session.add(internacion2)
+    await session.commit()
+    cama_uti = CamaGestion(
+        nombre="UTI-01",
+        tipo=TipoCama.CAMA_INTERNACION,
+        sector="UTI",
+        estado_gestion=EstadoCamaGestion.PROCESO_DE_ALTA,
+        internacion_actual_id=internacion2.id,
+    )
+    session.add(cama_uti)
+    await session.commit()
+
+    await _crear_egreso(client, internacion1.id)
+    await _crear_egreso(client, internacion2.id)
+
+    r_total = await client.get("/egresos/pendientes", params={"rol": "MEDICO"})
+    assert r_total.status_code == 200
+    assert len(r_total.json()) == 2
+
+    r_clinica = await client.get(
+        "/egresos/pendientes", params={"rol": "MEDICO", "sector": "Clínica"}
+    )
+    assert r_clinica.status_code == 200
+    assert len(r_clinica.json()) == 1
+    assert r_clinica.json()[0]["sector"] == "Clínica"
+
+    r_uti = await client.get(
+        "/egresos/pendientes", params={"rol": "MEDICO", "sector": "UTI"}
+    )
+    assert r_uti.status_code == 200
+    assert len(r_uti.json()) == 1
+    assert r_uti.json()[0]["sector"] == "UTI"
+
+
+@pytest.mark.asyncio
+async def test_pendientes_limpieza_ejecucion_pendiente(
+    client: AsyncClient, session: AsyncSession
+):
+    """Post-salida física: EJECUCION pendiente → aparece en cola LIMPIEZA con item_id."""
+    _, internacion = await _crear_setup(session, dni="50000008")
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+
+    r = await client.get("/egresos/pendientes?rol=LIMPIEZA")
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 1
+    assert data[0]["egreso_id"] == egreso_id
+    assert data[0]["item_codigo"] == "EJECUCION"
+    assert data[0]["item_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_pendientes_hoteleria_supervision_tras_ejecucion(
+    client: AsyncClient, session: AsyncSession
+):
+    """EJECUCION done, SUPERVISION pending → HOTELERIA la ve; LIMPIEZA no."""
+    _, internacion = await _crear_setup(session, dni="50000009")
+    egreso_data = await _flujo_hasta_egreso_admin(client, internacion.id)
+    egreso_id = egreso_data["id"]
+    await client.patch(f"/egresos/{egreso_id}/salida-fisica", json={"rol": "ENFERMERIA"})
+
+    det = (await client.get(f"/egresos/{egreso_id}")).json()
+    ejecucion = next(i for i in det["limpieza_checklist"] if i["codigo"] == "EJECUCION")
+    await client.patch(
+        f"/egresos/{egreso_id}/limpieza/{ejecucion['id']}",
+        json={"rol": "LIMPIEZA"},
+    )
+
+    r_limpieza = await client.get("/egresos/pendientes?rol=LIMPIEZA")
+    assert r_limpieza.status_code == 200
+    assert len(r_limpieza.json()) == 0
+
+    r_hoteleria = await client.get("/egresos/pendientes?rol=HOTELERIA")
+    assert r_hoteleria.status_code == 200
+    data = r_hoteleria.json()
+    assert len(data) == 1
+    assert data[0]["egreso_id"] == egreso_id
+    assert data[0]["item_codigo"] == "SUPERVISION"
+    assert data[0]["item_id"] is not None

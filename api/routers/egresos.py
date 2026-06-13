@@ -8,11 +8,12 @@ salvo MantenimientoPendiente que produce 200 con campo informativo.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from collections import defaultdict
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import Date, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_egreso, get_session
@@ -23,7 +24,10 @@ from api.schemas import (
     CrearEgresoBody,
     DiscrepanciaOut,
     EgresoDetalleOut,
+    EgresoListaInternacion,
+    EgresoListaItem,
     EgresoOut,
+    EgresoPendienteItem,
     ItemChecklistEgresoOut,
     ItemChecklistLimpiezaOut,
     MarcarItemChecklistBody,
@@ -41,9 +45,16 @@ from database.models import (
     ItemChecklistEgreso,
     ItemChecklistLimpieza,
     NotaEgreso,
+    PacienteLocal,
 )
 from domain.discharge_responsibility import computar_responsable
-from domain.egreso_service import MantenimientoPendiente, ServicioEgreso, OrdenTrasladoRequiereDatos
+from domain.egreso_service import (
+    ESTADOS_ACTIVOS,
+    MantenimientoPendiente,
+    OrdenTrasladoRequiereDatos,
+    ServicioEgreso,
+)
+from domain.state_machine import RolOperativo
 
 router = APIRouter(tags=["egresos"])
 
@@ -179,6 +190,248 @@ async def crear_egreso(
         actor_nombre=body.actor_nombre,
     )
     return EgresoOut.model_validate(egreso)
+
+
+@router.get("/egresos", response_model=list[EgresoListaItem])
+async def lista_egresos(
+    estado: str | None = None,
+    fecha: date | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """Lista de egresos del día (con joins). Default fecha = hoy (UTC).
+
+    estado: activos | liberados | <omitir→todos>
+    """
+    if fecha is None:
+        fecha = date.today()
+
+    stmt = (
+        select(Egreso, CamaGestion, InternacionLocal, PacienteLocal)
+        .join(CamaGestion, Egreso.cama_gestion_id == CamaGestion.id)
+        .join(InternacionLocal, Egreso.internacion_local_id == InternacionLocal.id)
+        .join(PacienteLocal, InternacionLocal.paciente_local_id == PacienteLocal.id)
+    )
+
+    if estado == "activos":
+        stmt = stmt.where(Egreso.estado.in_(ESTADOS_ACTIVOS))
+    elif estado == "liberados":
+        stmt = stmt.where(Egreso.estado == "liberado")
+
+    stmt = stmt.where(
+        or_(
+            cast(Egreso.created_at, Date) == fecha,
+            cast(Egreso.salida_fisica_at, Date) == fecha,
+        )
+    )
+    stmt = stmt.order_by(Egreso.trabado_desde.asc().nullslast(), Egreso.created_at.asc())
+
+    rows = (await session.execute(stmt)).all()
+    if not rows:
+        return []
+
+    egreso_ids = [row.Egreso.id for row in rows]
+
+    items_map: dict = defaultdict(list)
+    for item in (
+        await session.execute(
+            select(ItemChecklistEgreso).where(ItemChecklistEgreso.egreso_id.in_(egreso_ids))
+        )
+    ).scalars():
+        items_map[item.egreso_id].append(item)
+
+    limpieza_map: dict = defaultdict(list)
+    for item in (
+        await session.execute(
+            select(ItemChecklistLimpieza).where(ItemChecklistLimpieza.egreso_id.in_(egreso_ids))
+        )
+    ).scalars():
+        limpieza_map[item.egreso_id].append(item)
+
+    ahora = datetime.now(timezone.utc)
+    result = []
+    for row in rows:
+        e = row.Egreso
+        cama = row.CamaGestion
+        pac = row.PacienteLocal
+
+        egreso_ns = SimpleNamespace(
+            estado=e.estado,
+            salida_fisica_at=e.salida_fisica_at,
+            egreso_admin_at=e.egreso_admin_at,
+            medio_egreso=e.medio_egreso,
+            items_checklist=items_map[e.id],
+            limpieza_checklist=limpieza_map[e.id],
+        )
+        responsable = computar_responsable(egreso_ns)
+
+        minutos_trabado = None
+        if e.trabado_desde is not None:
+            minutos_trabado = round(
+                (ahora - e.trabado_desde).total_seconds() / 60.0, 1
+            )
+
+        result.append(
+            EgresoListaItem(
+                id=e.id,
+                internacion=EgresoListaInternacion(
+                    paciente_nombre=f"{pac.apellido}, {pac.nombre}",
+                    paciente_dni=pac.dni,
+                    cama_codigo=cama.nombre,
+                    cama_sector=cama.sector,
+                ),
+                medio_egreso=e.medio_egreso,
+                estado=e.estado,
+                responsable_actual=(
+                    {"rol": responsable.rol, "tarea": responsable.tarea}
+                    if responsable else None
+                ),
+                trabado_desde=e.trabado_desde,
+                minutos_trabado=minutos_trabado,
+                egreso_admin_at=e.egreso_admin_at,
+                salida_fisica_at=e.salida_fisica_at,
+                datos_traslado=e.datos_traslado,
+                created_at=e.created_at,
+            )
+        )
+
+    return result
+
+
+@router.get("/egresos/pendientes", response_model=list[EgresoPendienteItem])
+async def egresos_pendientes(
+    rol: str,
+    sector: str | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """Cola de pendientes por rol sobre egresos activos.
+
+    LIMPIEZA: camas en limpieza_terminal con EJECUCION sin hacer.
+    HOTELERIA: camas en limpieza_terminal con SUPERVISION sin hacer.
+    Otros roles: computar_responsable sobre checklist pre-salida.
+    """
+    try:
+        rol_enum = RolOperativo(rol.upper())
+    except ValueError:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Rol '{rol}' no válido. Valores: {[r.value for r in RolOperativo]}",
+        )
+
+    stmt = (
+        select(Egreso, CamaGestion, InternacionLocal, PacienteLocal)
+        .join(CamaGestion, Egreso.cama_gestion_id == CamaGestion.id)
+        .join(InternacionLocal, Egreso.internacion_local_id == InternacionLocal.id)
+        .join(PacienteLocal, InternacionLocal.paciente_local_id == PacienteLocal.id)
+        .where(Egreso.estado.in_(ESTADOS_ACTIVOS))
+    )
+    if sector:
+        stmt = stmt.where(CamaGestion.sector == sector)
+
+    rows = (await session.execute(stmt)).all()
+    if not rows:
+        return []
+
+    egreso_ids = [row.Egreso.id for row in rows]
+
+    items_map: dict = defaultdict(list)
+    for item in (
+        await session.execute(
+            select(ItemChecklistEgreso).where(ItemChecklistEgreso.egreso_id.in_(egreso_ids))
+        )
+    ).scalars():
+        items_map[item.egreso_id].append(item)
+
+    limpieza_map: dict = defaultdict(list)
+    for item in (
+        await session.execute(
+            select(ItemChecklistLimpieza).where(ItemChecklistLimpieza.egreso_id.in_(egreso_ids))
+        )
+    ).scalars():
+        limpieza_map[item.egreso_id].append(item)
+
+    ahora = datetime.now(timezone.utc)
+    rol_lower = rol_enum.value.lower()
+    result = []
+
+    for row in rows:
+        e = row.Egreso
+        cama = row.CamaGestion
+        pac = row.PacienteLocal
+
+        paciente_nombre = f"{pac.apellido}, {pac.nombre}"
+        minutos_trabado = None
+        if e.trabado_desde is not None:
+            minutos_trabado = round(
+                (ahora - e.trabado_desde).total_seconds() / 60.0, 1
+            )
+
+        if e.salida_fisica_at is not None:
+            # Fase limpieza terminal — LIMPIEZA y HOTELERIA tienen cola propia
+            if rol_enum == RolOperativo.LIMPIEZA:
+                ejecucion = next(
+                    (i for i in limpieza_map[e.id] if i.codigo == "EJECUCION" and not i.done),
+                    None,
+                )
+                if ejecucion:
+                    result.append(EgresoPendienteItem(
+                        egreso_id=e.id,
+                        tarea=ejecucion.label,
+                        cama=cama.nombre,
+                        sector=cama.sector,
+                        paciente=paciente_nombre,
+                        paciente_dni=pac.dni,
+                        medio_egreso=e.medio_egreso,
+                        minutos_trabado=minutos_trabado,
+                        item_id=ejecucion.id,
+                        item_label=ejecucion.label,
+                        item_codigo=ejecucion.codigo,
+                    ))
+            elif rol_enum == RolOperativo.HOTELERIA:
+                supervision = next(
+                    (i for i in limpieza_map[e.id] if i.codigo == "SUPERVISION" and not i.done),
+                    None,
+                )
+                if supervision:
+                    result.append(EgresoPendienteItem(
+                        egreso_id=e.id,
+                        tarea=supervision.label,
+                        cama=cama.nombre,
+                        sector=cama.sector,
+                        paciente=paciente_nombre,
+                        paciente_dni=pac.dni,
+                        medio_egreso=e.medio_egreso,
+                        minutos_trabado=minutos_trabado,
+                        item_id=supervision.id,
+                        item_label=supervision.label,
+                        item_codigo=supervision.codigo,
+                    ))
+            # Todos los demás roles no tienen trabajo en la fase de limpieza
+            continue
+
+        # Fase pre-salida: responsable emerge del checklist
+        egreso_ns = SimpleNamespace(
+            estado=e.estado,
+            salida_fisica_at=None,
+            egreso_admin_at=e.egreso_admin_at,
+            medio_egreso=e.medio_egreso,
+            items_checklist=items_map[e.id],
+            limpieza_checklist=[],
+        )
+        responsable = computar_responsable(egreso_ns)
+
+        if responsable and responsable.rol == rol_lower:
+            result.append(EgresoPendienteItem(
+                egreso_id=e.id,
+                tarea=responsable.tarea,
+                cama=cama.nombre,
+                sector=cama.sector,
+                paciente=paciente_nombre,
+                paciente_dni=pac.dni,
+                medio_egreso=e.medio_egreso,
+                minutos_trabado=minutos_trabado,
+            ))
+
+    return result
 
 
 @router.get("/egresos/{egreso_id}", response_model=EgresoDetalleOut)
