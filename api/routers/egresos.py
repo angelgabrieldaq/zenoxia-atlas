@@ -51,7 +51,6 @@ from domain.discharge_responsibility import computar_responsable
 from domain.egreso_service import (
     ESTADOS_ACTIVOS,
     MantenimientoPendiente,
-    OrdenTrasladoRequiereDatos,
     ServicioEgreso,
 )
 from domain.state_machine import RolOperativo

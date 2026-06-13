@@ -151,8 +151,8 @@ async function abrirDetalle(camaId) {
   try {
     const detalle = await api("/camas/" + camaId);
     state.pendingAction = null;
-    state.detalle = detalle;
     state.egreso = null;
+    state.detalle = detalle;
     const intern = internOf(detalle);
     if (intern && ["PROCESO_DE_ALTA", "LIMPIEZA_TERMINAL"].includes(detalle.estado_gestion)) {
       try { state.egreso = await api(`/internaciones/${intern.id}/egreso-activo`); }
@@ -161,7 +161,7 @@ async function abrirDetalle(camaId) {
   } catch (e) { toast(e.message, "err"); }
 }
 
-function cerrarDetalle() { state.pendingAction = null; state.detalle = null; }
+function cerrarDetalle() { state.pendingAction = null; state.detalle = null; state.egreso = null; }
 
 function onAccion(cama, accion) {
   if (accion.needs === "internacion" || accion.needs === "motivo") {
@@ -659,6 +659,7 @@ function renderBoard() {
 
 function renderDetalle() {
   const host = document.getElementById("drawer-host");
+  const _prevScroll = host.querySelector(".drawer-body")?.scrollTop ?? 0;
   host.innerHTML = "";
   const d = state.detalle;
   if (!d) return;
@@ -715,6 +716,7 @@ function renderDetalle() {
   );
   
   host.append(overlay, drawer);
+  if (_prevScroll) drawerBody.scrollTop = _prevScroll;
 }
 
 function renderAccionesArea(d) {
