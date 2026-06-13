@@ -327,6 +327,11 @@ async def egresos_pendientes(
     if sector:
         stmt = stmt.where(CamaGestion.sector == sector)
 
+    # Orden de ronda: por sector/piso (el médico recorre por ubicación, no por
+    # urgencia — un alta no corre). Desempate por trabado_desde (más viejo
+    # primero) como pista para hotelería/jefatura, sin gobernar el recorrido.
+    stmt = stmt.order_by(CamaGestion.sector.asc(), Egreso.trabado_desde.asc().nulls_last())
+
     rows = (await session.execute(stmt)).all()
     if not rows:
         return []

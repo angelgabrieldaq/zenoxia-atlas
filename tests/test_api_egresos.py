@@ -81,6 +81,7 @@ async def _crear_setup(
     session: AsyncSession,
     dni: str = "30111222",
     nombre_cama: str = "H-01",
+    sector: str = "Clínica",
 ) -> tuple[CamaGestion, InternacionLocal]:
     """Paciente + internación + cama en PROCESO_DE_ALTA. Devuelve (cama, internacion)."""
     paciente = PacienteLocal(dni=dni, nombre="Ana", apellido="Gómez")
@@ -94,7 +95,7 @@ async def _crear_setup(
     cama = CamaGestion(
         nombre=nombre_cama,
         tipo=TipoCama.CAMA_INTERNACION,
-        sector="Clínica",
+        sector=sector,
         estado_gestion=EstadoCamaGestion.PROCESO_DE_ALTA,
         internacion_actual_id=internacion.id,
     )
@@ -1131,3 +1132,32 @@ async def test_pendientes_hoteleria_supervision_tras_ejecucion(
     assert data[0]["egreso_id"] == egreso_id
     assert data[0]["item_codigo"] == "SUPERVISION"
     assert data[0]["item_id"] is not None
+
+
+@pytest.mark.asyncio
+async def test_pendientes_medico_ordenados_por_sector(
+    client: AsyncClient, session: AsyncSession
+):
+    """La cola del médico sale ordenada por sector ASC (ronda por ubicación).
+
+    Crea 3 egresos 'camina' en sectores desordenados alfabéticamente; cada uno
+    deja ítems de médico sin marcar → MEDICO es el responsable de los 3.
+    """
+    setups = [
+        ("30100001", "U-01", "UTI"),
+        ("30100002", "C-01", "Cardiología"),
+        ("30100003", "P-01", "Pediatría"),
+    ]
+    for dni, cama_nombre, sector in setups:
+        _, internacion = await _crear_setup(
+            session, dni=dni, nombre_cama=cama_nombre, sector=sector
+        )
+        await _crear_egreso(client, internacion.id, medio="camina")
+
+    r = await client.get("/egresos/pendientes?rol=MEDICO")
+    assert r.status_code == 200, r.text
+    sectores = [item["sector"] for item in r.json()]
+
+    # Debe venir ordenado alfabéticamente, no en orden de inserción
+    assert sectores == sorted(sectores), f"esperado orden ASC, recibido: {sectores}"
+    assert sectores == ["Cardiología", "Pediatría", "UTI"]
