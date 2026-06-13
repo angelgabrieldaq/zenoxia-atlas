@@ -188,11 +188,11 @@ legend {
   color: var(--txt);
 }
 .meta-sub {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--txt3);
 }
 .slabel {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   background: var(--p-light);
   color: var(--p-dark);
   padding: 3px 10px;
@@ -220,7 +220,7 @@ legend {
   color: var(--txt);
 }
 .tb-role {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--txt3);
 }
 .tb-right {
@@ -545,7 +545,7 @@ legend {
   color: var(--cama-limp);
 }
 .cama-flag {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--s-err);
   margin-top: 5px;
   display: flex;
@@ -554,7 +554,7 @@ legend {
   font-weight: 500;
 }
 .cama-espera {
-  font-size: 9px;
+  font-size: var(--text-md);
   color: var(--s-warn);
   margin-top: 3px;
   display: flex;
@@ -722,7 +722,7 @@ legend {
   color: var(--txt);
 }
 .dh-sub {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--txt3);
   margin-top: 2px;
   line-height: 1.5;
@@ -750,7 +750,7 @@ legend {
   padding: 12px 14px;
 }
 .er-title {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--txt3);
   text-transform: uppercase;
@@ -795,7 +795,7 @@ legend {
   flex: 1;
 }
 .er-dim-state {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 500;
 }
 .card {
@@ -823,7 +823,7 @@ legend {
   gap: 6px;
 }
 .card-badge {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--txt3);
 }
 .card-body {
@@ -831,7 +831,7 @@ legend {
 }
 .pill {
   display: inline-block;
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 2px 8px;
   border-radius: 10px;
   font-weight: 500;
@@ -955,7 +955,7 @@ legend {
   filter: none;
 }
 .btn-sm {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 6px 11px;
   border-radius: var(--r);
   border: 0.5px solid var(--brd2);
@@ -1044,7 +1044,7 @@ legend {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 10px;
+  font-size: var(--text-md);
   font-weight: 600;
   padding: 3px 8px;
   border-radius: 8px;
@@ -1087,7 +1087,7 @@ legend {
   margin-top: 8px;
 }
 .equip-chip {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   padding: 4px 10px;
   border-radius: var(--r-full);
   border: 0.5px solid var(--brd2);
@@ -1145,12 +1145,12 @@ legend {
   color: var(--txt);
 }
 .mob-sub {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--txt2);
   margin-top: 1px;
 }
 .field-lbl {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   color: var(--txt2);
   text-transform: uppercase;
@@ -1282,7 +1282,7 @@ legend {
   min-width: 0;
 }
 .ri-meta {
-  font-size: 9px;
+  font-size: var(--text-md);
   color: var(--txt3);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -1334,7 +1334,7 @@ legend {
   color: var(--txt2);
 }
 .check-label .legal-tag {
-  font-size: 8px;
+  font-size: var(--text-2xs);
   background: var(--s-err-l);
   color: var(--s-err);
   padding: 1px 5px;
@@ -1343,13 +1343,13 @@ legend {
   font-weight: 500;
 }
 .check-meta {
-  font-size: 9px;
+  font-size: var(--text-md);
   color: var(--txt3);
 }
 .cg-locked {
   padding: 9px 12px;
   background: var(--bg2);
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--txt3);
   display: flex;
   align-items: center;
@@ -1359,7 +1359,7 @@ legend {
 .cg-hint {
   padding: 6px 12px;
   background: var(--s-info-l);
-  font-size: 9px;
+  font-size: var(--text-2xs);
   color: var(--s-info);
   border-top: 0.5px solid var(--brd);
   display: flex;
@@ -1448,7 +1448,7 @@ legend {
   padding-bottom: 12px;
 }
 .tl-time {
-  font-size: 9px;
+  font-size: var(--text-md);
   color: var(--txt3);
   font-variant-numeric: tabular-nums;
 }
@@ -1458,7 +1458,7 @@ legend {
   color: var(--txt);
 }
 .tl-who {
-  font-size: 9px;
+  font-size: var(--text-md);
   color: var(--txt2);
 }
 .reclamo-item {
@@ -1475,7 +1475,7 @@ legend {
   margin-bottom: 3px;
 }
 .ri-tipo {
-  font-size: 9px;
+  font-size: var(--text-2xs);
   font-weight: 500;
   padding: 1px 7px;
   border-radius: 6px;
@@ -1503,7 +1503,7 @@ legend {
   border-radius: 0 var(--r) var(--r) 0;
 }
 .role-notice {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--txt3);
   background: var(--bg2);
   padding: 7px 11px;
@@ -1522,13 +1522,13 @@ legend {
   margin-top: 8px;
 }
 .db-title {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   font-weight: 600;
   color: var(--s-err);
   margin-bottom: 3px;
 }
 .db-text {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--s-err);
   line-height: 1.5;
 }
@@ -1672,7 +1672,7 @@ legend {
   color: var(--txt);
 }
 .m-sub {
-  font-size: 10px;
+  font-size: var(--text-2xs);
   color: var(--txt2);
   margin-top: 3px;
   line-height: 1.5;
@@ -1767,4 +1767,63 @@ legend {
 
     max-width: 100%;
   }
+}
+
+/* Identidad del paciente dentro del header fijo del drawer */
+.dh-paciente { font-size: var(--text-md); font-weight: 600; color: var(--txt); margin-top: 6px; }
+.dh-cob { font-size: var(--text-2xs); color: var(--txt3); margin-top: 2px; }
+
+/* ── Secciones colapsables del drawer (details/summary) ──────────── */
+details.card > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+details.card > summary::-webkit-details-marker { display: none; }
+details.card > summary::marker { display: none; }
+
+/* Lado derecho del summary: agrupa badges + chevron */
+.ds-right {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-sm);
+}
+
+/* Chevron CSS-only (sin glifos Unicode) — apunta derecha; rota abajo cuando open */
+.ds-chevron {
+  display: inline-block;
+  width: var(--gap-sm);
+  height: var(--gap-sm);
+  border-right: 1.5px solid var(--txt3);
+  border-bottom: 1.5px solid var(--txt3);
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+details.card[open] .ds-chevron {
+  transform: rotate(45deg);
+}
+
+/* Badges en el summary — siempre con texto, nunca solo color */
+.ds-badge {
+  font-size: var(--text-2xs);
+  font-weight: var(--fw-semibold);
+  padding: 1px var(--gap-sm);
+  border-radius: var(--r-full);
+  white-space: nowrap;
+}
+.ds-badge--warn {
+  background: var(--s-warn-l);
+  color: var(--s-warn);
+  border: 1px solid var(--s-warn-m);
+}
+.ds-badge--err {
+  background: var(--s-err-l);
+  color: var(--s-err);
+  border: 1px solid var(--s-err-m);
+}
+.ds-badge--muted {
+  background: var(--bg2);
+  color: var(--txt3);
+  border: 0.5px solid var(--brd2);
 }
