@@ -233,7 +233,7 @@ legend {
   border: 0.5px solid var(--brd2);
   border-radius: var(--r);
   overflow: hidden;
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }
 .rs-opt {
   padding: 5px 11px;
