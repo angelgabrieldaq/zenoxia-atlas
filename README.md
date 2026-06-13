@@ -3,6 +3,44 @@
 Módulo del ecosistema clínico Zenoxia. Organiza la ocupación del sanatorio:
 gestión de camas, reserva, enroque y validación quirúrgica cruzada.
 
+---
+
+## Sistema de diseño — v3.0
+
+Atlas implementa el **Zenoxia Design System v3.0** compartido con todos los módulos del ecosistema.
+
+### CSS
+| Archivo | Descripción |
+|---|---|
+| `frontend/design-tokens.css` | Tokens de color, tipografía, espaciado, estados de cama, SLA y accesibilidad |
+| `frontend/responsive.css` | Utilitarios móvil-first: grid, flex, botones, modales, tablas responsive |
+| `frontend/styles.css` | CSS local de Atlas (tablero, cards de cama, drawer, egreso) |
+
+### TypeScript
+| Archivo | Descripción |
+|---|---|
+| `frontend/app.ts` | Aplicación completa — tipos: `Cama`, `Internacion`, `Egreso`, `ChecklistItem`, `AppState` |
+
+**Compilar:**
+```bash
+cd frontend && tsc
+```
+
+### Tipografía
+```
+Figtree (UI) + Noto Sans (cuerpo de texto)
+Escala clínica: 11px mínimo (--text-2xs) · 16px cuerpo móvil (--text-lg)
+```
+
+### Responsive
+- Breakpoints: 375 / 768 / 1024 / 1440 px
+- Topbar sticky: 52px en móvil, 60px en tablet+
+- Targets táctiles: mínimo 44px (WCAG 2.2 AA)
+
+Ver `UI-SYSTEM.md` para la documentación completa del design system de este módulo.
+
+---
+
 ## Qué es
 
 Atlas es la herramienta donde la capacidad que se va a liberar se vuelve visible,
