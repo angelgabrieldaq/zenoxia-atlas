@@ -4,7 +4,7 @@ const API = "http://localhost:8000";
 
 const ROLES = [
   "ADMISION", "ENFERMERIA", "MEDICO", "HOTELERIA",
-  "LIMPIEZA", "MANTENIMIENTO", "OPERACIONES",
+  "LIMPIEZA", "MANTENIMIENTO",
 ];
 
 const CATEGORIAS = [
@@ -66,6 +66,10 @@ const initialState = {
   loading: false,
   egreso: null,
 };
+
+// Estado de secciones colapsables del drawer — preservado entre re-renders del polling.
+// Se limpia al abrir una cama distinta (ver abrirDetalle).
+const _drawerSectionsOpen = {};
 
 const RENDERERS = {
   camas:            () => { renderResumen(); renderBoard(); },
@@ -148,6 +152,9 @@ async function cargarTablero() {
 }
 
 async function abrirDetalle(camaId) {
+  if (state.detalle?.id !== camaId) {
+    for (const k of Object.keys(_drawerSectionsOpen)) delete _drawerSectionsOpen[k];
+  }
   try {
     const detalle = await api("/camas/" + camaId);
     state.pendingAction = null;
@@ -387,17 +394,26 @@ function internacionesLibres() {
 }
 
 function renderEgresoPanel(egreso, intern, cama) {
-  const wrap = el("div", { class: "card" });
   const estado = egreso.estado;
+  const resp = egreso.responsable_actual;
+  const esMio = !!(resp && resp.rol && resp.rol.toUpperCase() === state.rol);
+  const defaultOpen = esMio;
+  const abierto = "egreso" in _drawerSectionsOpen ? _drawerSectionsOpen.egreso : defaultOpen;
 
-  // Header con estado y responsable actual
-  const badgeColor = { info: "var(--p)", bloqueado: "var(--warn)", egreso_admin: "var(--ok)", liberado: "var(--ok)" }[estado] || "var(--p)";
+  const badgeColor = { info: "var(--p)", bloqueado: "var(--s-warn)", egreso_admin: "var(--s-ok)", liberado: "var(--s-ok)" }[estado] || "var(--p)";
   const estadoLabel = { info: "En proceso", bloqueado: "Bloqueado", egreso_admin: "Admin OK", liberado: "Liberado" }[estado] || estado;
-  const head = el("div", { class: "card-head" },
+  const miTurnoBadgeKind = egreso.minutos_trabado > 120 ? "err" : "warn";
+
+  const details = el("details", { class: "card", open: abierto });
+  details.addEventListener("toggle", () => { _drawerSectionsOpen.egreso = details.open; });
+  details.append(el("summary", { class: "card-head" },
     el("div", { class: "card-title" }, "Egreso"),
-    el("span", { style: `background:${badgeColor}20; color:${badgeColor}; padding:2px 8px; border-radius:4px; font-size:12px;` }, estadoLabel),
-  );
-  wrap.append(head);
+    el("div", { class: "ds-right" },
+      el("span", { style: `background:${badgeColor}20; color:${badgeColor}; padding:2px 8px; border-radius:var(--r-xs); font-size:var(--text-2xs);` }, estadoLabel),
+      esMio ? el("span", { class: `ds-badge ds-badge--${miTurnoBadgeKind}` }, "Mi turno") : null,
+      el("span", { class: "ds-chevron", "aria-hidden": "true" }),
+    ),
+  ));
 
   const body = el("div", { class: "card-body", style: "display:flex; flex-direction:column; gap:12px;" });
 
@@ -575,13 +591,19 @@ function renderEgresoPanel(egreso, intern, cama) {
     body.append(grp);
   }
 
-  wrap.append(body);
-  return wrap;
+  details.append(body);
+  return details;
 }
 
 function renderCrearEgresoPanel(intern, cama) {
-  const wrap = el("div", { class: "card" });
-  wrap.append(el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Iniciar egreso")));
+  const abierto = "egreso" in _drawerSectionsOpen ? _drawerSectionsOpen.egreso : state.rol === "ADMISION";
+  const details = el("details", { class: "card", open: abierto });
+  details.addEventListener("toggle", () => { _drawerSectionsOpen.egreso = details.open; });
+  details.append(el("summary", { class: "card-head" },
+    el("div", { class: "card-title" }, "Iniciar egreso"),
+    el("div", { class: "ds-right" }, el("span", { class: "ds-chevron", "aria-hidden": "true" })),
+  ));
+
   const body = el("div", { class: "card-body", style: "display:flex; flex-direction:column; gap:8px;" });
   const select = el("select", { class: "field-sel" },
     ...MEDIOS_EGRESO.map(m => el("option", { value: m.value }, m.label)),
@@ -606,8 +628,8 @@ function renderCrearEgresoPanel(intern, cama) {
       el("button", { class: "btn-primary", onClick: () => crearEgreso(intern.id, cama.id, select.value) }, "Crear egreso"),
     ),
   );
-  wrap.append(body);
-  return wrap;
+  details.append(body);
+  return details;
 }
 
 function renderResumen() {
@@ -670,17 +692,6 @@ function renderDetalle() {
 
   const drawerBody = el("div", { class: "drawer-body" });
   
-  // Agregamos la info del paciente
-  if (intern) {
-    drawerBody.append(el("div", { class: "card" }, 
-      el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Paciente y cobertura")), 
-      el("div", { class: "card-body", style: "display:flex; flex-direction:column; gap:8px;" }, 
-        el("div", {}, el("strong", {}, "Paciente: "), nombrePaciente(intern)), 
-        el("div", {}, el("strong", {}, "DNI: "), intern.paciente_dni || "—"), 
-        el("div", {}, el("strong", {}, "Cobertura: "), intern.cobertura || "—")
-      )
-    ));
-  }
   
   drawerBody.append(renderAccionesArea(d));
 
@@ -689,27 +700,49 @@ function renderDetalle() {
     else if (d.estado_gestion === "PROCESO_DE_ALTA") drawerBody.append(renderCrearEgresoPanel(intern, d));
   }
 
-  // Pintamos hitos
-  const hitosCont = el("div", { class: "card" });
-  hitosCont.append(el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Traza de hitos")));
+  // Pintamos hitos — siempre colapsado (es consulta)
+  const hitosOpen = "hitos" in _drawerSectionsOpen ? _drawerSectionsOpen.hitos : false;
+  const hitosCont = el("details", { class: "card", open: hitosOpen });
+  hitosCont.addEventListener("toggle", () => { _drawerSectionsOpen.hitos = hitosCont.open; });
+  hitosCont.append(el("summary", { class: "card-head" },
+    el("div", { class: "card-title" }, "Traza de hitos"),
+    el("div", { class: "ds-right" }, el("span", { class: "ds-chevron", "aria-hidden": "true" })),
+  ));
   const hitosList = el("div", { class: "card-body" });
-  hitosCont.append(hitosList);
   renderHitos(d.hitos || [], hitosList);
+  hitosCont.append(hitosList);
   drawerBody.append(hitosCont);
 
-  // Pintamos notas
-  const notasCont = el("div", { class: "card" });
-  notasCont.append(el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Notas de la cama")));
+  // Pintamos notas — abierto si hay alguna de tipo reclamo
+  const notas = d.notas || [];
+  const tieneReclamo = notas.some(n => n.tipo === "reclamo");
+  const notasOpen = "notas" in _drawerSectionsOpen ? _drawerSectionsOpen.notas : tieneReclamo;
+  const notasCont = el("details", { class: "card", open: notasOpen });
+  notasCont.addEventListener("toggle", () => { _drawerSectionsOpen.notas = notasCont.open; });
+  notasCont.append(el("summary", { class: "card-head" },
+    el("div", { class: "card-title" }, "Notas de la cama"),
+    el("div", { class: "ds-right" },
+      tieneReclamo ? el("span", { class: "ds-badge ds-badge--warn" }, "Reclamo") : null,
+      el("span", { class: "ds-chevron", "aria-hidden": "true" }),
+    ),
+  ));
   const notasList = el("div", { class: "card-body" });
+  renderNotas(notas, notasList);
   notasCont.append(notasList);
-  renderNotas(d.notas || [], notasList);
   drawerBody.append(notasCont);
 
   // Creamos el drawer usando el drawerBody que construimos
   const drawer = el("aside", { class: "drawer open" }, 
     el("div", { class: "drawer-head" },
       el("div", { class: "dh-av", style: "background:var(--p-light); color:var(--p-dark);" }, "🛏️"),
-      el("div", { class: "dh-info" }, el("div", { class: "dh-name" }, d.nombre), el("div", { class: "dh-sub" }, `${ESTADO_LABEL[d.estado_gestion]} · ${TIPO_LABEL[d.tipo] || d.tipo}`)),
+      el("div", { class: "dh-info" },
+        el("div", { class: "dh-name" }, d.nombre),
+        el("div", { class: "dh-sub" }, `${ESTADO_LABEL[d.estado_gestion]} · ${TIPO_LABEL[d.tipo] || d.tipo}`),
+        ...(intern ? [
+          el("div", { class: "dh-paciente" }, nombrePaciente(intern)),
+          el("div", { class: "dh-cob" }, `DNI ${intern.paciente_dni || "—"} · ${intern.cobertura || "—"}`)
+        ] : [])
+      ),
       el("button", { class: "drawer-close", onClick: cerrarDetalle }, "×")
     ),
     drawerBody
@@ -720,11 +753,20 @@ function renderDetalle() {
 }
 
 function renderAccionesArea(d) {
-  const wrap = el("div", { class: "card" });
-  wrap.append(el("div", { class: "card-head" }, el("div", { class: "card-title" }, "Acciones")));
-  
+  const pendingActive = !!(state.pendingAction && state.pendingAction.camaId === d.id);
+  const acciones = ACCIONES[d.estado_gestion] || [];
+  const hayParaRol = pendingActive || acciones.some(a => a.rol === state.rol);
+  const abierto = "acciones" in _drawerSectionsOpen ? _drawerSectionsOpen.acciones : hayParaRol;
+
+  const details = el("details", { class: "card", open: abierto });
+  details.addEventListener("toggle", () => { _drawerSectionsOpen.acciones = details.open; });
+  details.append(el("summary", { class: "card-head" },
+    el("div", { class: "card-title" }, "Acciones"),
+    el("div", { class: "ds-right" }, el("span", { class: "ds-chevron", "aria-hidden": "true" })),
+  ));
+
   const cont = el("div", { class: "card-body", style: "display:flex; flex-direction:column; gap:8px;" });
-  if (state.pendingAction && state.pendingAction.camaId === d.id) {
+  if (pendingActive) {
     if (state.pendingAction.needs === "motivo") {
       const input = el("input", { class: "field-sel", id: "f-motivo", placeholder: "Ej. Mantenimiento..." });
       cont.append(el("div", { class: "field-lbl" }, "Motivo del bloqueo"), input, el("div", { class: "action-foot" }, el("button", { class: "btn-primary", onClick: () => { if(input.value) ejecutar(d.id, "bloquear", { motivo_bloqueo: input.value }); } }, "Confirmar"), el("button", { class: "btn-ghost", onClick: () => state.pendingAction = null }, "Cancelar")));
@@ -734,12 +776,11 @@ function renderAccionesArea(d) {
       cont.append(el("div", { class: "field-lbl" }, "Seleccionar internación"), select, el("div", { class: "action-foot" }, el("button", { class: "btn-primary", onClick: () => { if(select.value) ejecutar(d.id, state.pendingAction.accionId, { internacion_id: select.value }); } }, "Confirmar"), el("button", { class: "btn-ghost", onClick: () => state.pendingAction = null }, "Cancelar")));
     }
   } else {
-    const acciones = ACCIONES[d.estado_gestion] || [];
     if (!acciones.length) cont.append(el("p", { class: "ri-meta" }, "Sin acciones disponibles."));
     for (const a of acciones) cont.append(el("button", { class: a.kind === "warn" ? "btn-warn" : "btn-primary", onClick: () => onAccion(d, a) }, a.label));
   }
-  wrap.append(cont);
-  return wrap;
+  details.append(cont);
+  return details;
 }
 
 function renderToast() {
