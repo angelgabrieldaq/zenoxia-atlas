@@ -27,7 +27,7 @@ from database.models import CamaGestion, InternacionLocal, PacienteLocal
 
 load_dotenv()
 
-_DATABASE_URL = os.environ["DATABASE_URL"]
+_DATABASE_URL = os.environ["DATABASE_URL_TEST"]
 _engine = create_async_engine(_DATABASE_URL, poolclass=NullPool)
 _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
 

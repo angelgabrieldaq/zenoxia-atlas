@@ -42,7 +42,7 @@ from domain.state_machine import RolOperativo
 
 load_dotenv()
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas"
+    "DATABASE_URL_TEST", "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas_test"
 )
 
 _TABLAS = (

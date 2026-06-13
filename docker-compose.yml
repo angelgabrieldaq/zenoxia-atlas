@@ -28,6 +28,7 @@ services:
       POSTGRES_USER: atlas
       POSTGRES_PASSWORD: atlas
       DATABASE_URL: postgresql+asyncpg://atlas:atlas@postgres:5432/atlas
+      DATABASE_URL_TEST: postgresql+asyncpg://atlas:atlas@postgres:5432/atlas_test
     ports:
       - "8000:8000"
     volumes:

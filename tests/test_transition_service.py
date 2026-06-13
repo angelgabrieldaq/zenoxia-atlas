@@ -36,7 +36,7 @@ from domain.transition_service import (
 
 load_dotenv()
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas"
+    "DATABASE_URL_TEST", "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas_test"
 )
 
 # Orden no importa: CASCADE resuelve las FK entre las 4 tablas. alembic_version queda.

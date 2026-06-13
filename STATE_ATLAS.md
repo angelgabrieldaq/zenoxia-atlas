@@ -10,16 +10,17 @@ Leer antes de codear. Subordinado a `DECISIONES_ARQUITECTURA_CORE.md` (en zenoxi
 
 | Dimensión | Estado |
 |---|---|
-| **Tests** | **228 pasando** — suite completa verde (222 base + 6 nuevos: orden de traslado) |
-| **Entorno** | Docker + PostgreSQL funcionando |
+| **Tests** | **237 pasando** — suite completa verde; base de tests aislada (`atlas_test`) |
+| **Entorno** | Docker + PostgreSQL funcionando; dev=`atlas`, tests=`atlas_test` |
 | **Fase** | Capa 1 (gestión operativa del día) en producción |
 | **Backend** | FastAPI async + SQLAlchemy 2.0 + Alembic |
 | **Migraciones** | 13 versiones aplicadas (hasta `c7a8b9d` — datos_traslado en egreso) |
 
-### 1.1 Archivos de tests (11 módulos)
+### 1.1 Archivos de tests (12 módulos + conftest)
 
 ```
 tests/
+├── conftest.py                        ← crea atlas_test + aplica migraciones (sesión)
 ├── test_api_camas.py
 ├── test_api_egresos.py
 ├── test_discharge_catalog.py
@@ -32,6 +33,32 @@ tests/
 ├── test_state_machine.py
 ├── test_sync_interface.py
 └── test_transition_service.py
+```
+
+### 1.2 Bases de datos
+
+| Base | Uso | Variable |
+|---|---|---|
+| `atlas` | Desarrollo / frontend / seed demo | `DATABASE_URL` |
+| `atlas_test` | Tests (pytest) — truncada libremente | `DATABASE_URL_TEST` |
+
+**Para levantar el entorno de tests desde cero:**
+
+```bash
+# 1. El conftest.py crea atlas_test automáticamente al primer pytest
+docker compose exec app python -m pytest
+
+# Si las camas del tablero desaparecieron (pytest no debería tocarlas):
+docker compose exec app python -c "
+import asyncio, os
+from database.seeds import seed_hospital_demo
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+async def run():
+    engine = create_async_engine(os.environ['DATABASE_URL'])
+    async with async_sessionmaker(engine, expire_on_commit=False)() as s:
+        await seed_hospital_demo(s); await s.commit()
+asyncio.run(run())
+"
 ```
 
 ---
@@ -297,6 +324,7 @@ Frontend de egreso completo. Último commit pusheado: `c8c29a1`.
 - 218 tests pasando (baseline 12 jun 2026; aritmética: 219 pre-fix − 2 eliminados + 1 nuevo = 218)
 - 222 tests pasando (12 jun 2026; aritmética: 218 base + 4 nuevos = 222 — doble OK de limpieza, ver §9.3)
 - 228 tests pasando (12 jun 2026; aritmética: 222 base + 6 nuevos = 228 — orden de traslado, ver §9.4)
+- 237 tests pasando (13 jun 2026; aritmética: 228 + 9 nuevos = 237 — listado por rol, ver §9.5; + tests aislados en atlas_test)
 
 **Frontend:**
 - Panel de egreso reactivo: checklist, limpieza, OK admin, salida física, discrepancias, notas
@@ -420,6 +448,34 @@ Frontend:
 - Banner persistente en "Iniciar egreso" (reactivo al medio) y en el panel del egreso mientras la orden esté pendiente.
 - `renderLimpiezaItem` diferenciado por `item.codigo`: SUPERVISION muestra "Pendiente: supervisión de hotelería" a LIMPIEZA.
 - 409 de `EjecucionPendiente` llega como toast vía `ApiError.detail`.
+
+### 9.5 Endpoints de listado por rol + aislamiento de base de tests — 13 jun 2026
+
+**Problema detectado:** pytest truncaba `cama_gestion` en la base de dev — las 55 camas
+desaparecían del tablero en cada corrida. Incidente del 12 jun 2026.
+
+**Solución: base `atlas_test` aislada:**
+- `DATABASE_URL_TEST = postgresql+asyncpg://atlas:atlas@postgres:5432/atlas_test`
+- `tests/conftest.py` — fixture `scope="session", autouse=True` que crea `atlas_test` y
+  aplica `alembic upgrade head` al inicio de cada sesión pytest.
+- Los 8 archivos de test con acceso a DB usan `DATABASE_URL_TEST`; la base de dev no se toca.
+
+**Endpoints de listado (commit pendiente):**
+
+| Endpoint | Descripción |
+|---|---|
+| `GET /egresos?estado=&fecha=` | Lista del día; default fecha=hoy; trabados primero |
+| `GET /egresos/pendientes?rol=&sector=` | Cola de trabajo por rol; LIMPIEZA y HOTELERIA tienen lógica propia sobre `item.codigo` |
+
+**Rendimiento:** 3 queries fijas por endpoint (1 JOIN + 2 batch) — sin N+1.
+
+**Regla LIMPIEZA/HOTELERIA en `/egresos/pendientes`:** `computar_responsable` siempre
+devuelve "hoteleria" para todos los ítems de limpieza (no distingue EJECUCION de SUPERVISION).
+En el endpoint de pendientes se bypasea esa función para la fase post-salida física y se
+filtra directamente por `item.codigo`.
+
+- Suite: **237/237 pasando**.
+- Verificado post-pytest: `GET /camas → 55 camas` intactas en dev.
 
 ---
 

@@ -60,7 +60,7 @@ from domain.transition_service import ServicioTransiciones
 
 load_dotenv()
 DATABASE_URL = os.getenv(
-    "DATABASE_URL", "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas"
+    "DATABASE_URL_TEST", "postgresql+asyncpg://atlas:atlas@localhost:5432/atlas_test"
 )
 
 _TABLAS = (
