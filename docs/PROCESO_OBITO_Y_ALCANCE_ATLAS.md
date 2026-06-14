@@ -2,7 +2,7 @@
 
 **Estado:** Diseño cerrado. `defuncion` entra al MVP como quinto `medio_egreso`.
 **Fecha:** 10 jun 2026
-**Fuente:** Relevamiento operativo directo (institución de referencia, CABA) +
+**Fuente:** Relevamiento operativo directo +
 instructivos internos de inscripción de defunción y confección de certificado.
 
 **Decisión madre:** El corte de alcance va donde la cama deja de ser el eje.

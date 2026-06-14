@@ -725,7 +725,7 @@ async def test_admision_marca_supervision_con_discrepancia_sin_ejecucion_200(
 
 _DATOS_TRASLADO_VALIDOS = {
     "destino_tipo": "sanatorio",
-    "destino_direccion": "Av. Rivadavia 1234, CABA",
+    "destino_direccion": "Calle Falsa 123",
     "prestador": "Swiss Medical",
     "medico_a_bordo": True,
     "acompanante": False,
@@ -736,7 +736,7 @@ _DATOS_TRASLADO_VALIDOS = {
 
 _DATOS_TRASLADO_DOMICILIO_DESCONOCIDO = {
     "destino_tipo": "domicilio",
-    "destino_direccion": "Av. Corrientes 500, CABA",
+    "destino_direccion": "Calle Ficticia 456",
     "prestador": "OSDE",
     "medico_a_bordo": False,
     "acompanante": True,
@@ -901,13 +901,13 @@ async def test_patch_datos_traslado_200_y_persistido(
     egreso = await _crear_egreso(client, internacion.id, "ambulancia")
     egreso_id = egreso["id"]
 
-    datos_nuevos = {**_DATOS_TRASLADO_VALIDOS, "destino_direccion": "Av. Santa Fe 9999"}
+    datos_nuevos = {**_DATOS_TRASLADO_VALIDOS, "destino_direccion": "Dirección Demo 789"}
     r = await client.patch(
         f"/egresos/{egreso_id}/datos-traslado",
         json={"rol": "ADMISION", "datos_traslado": datos_nuevos},
     )
     assert r.status_code == 200
-    assert r.json()["datos_traslado"]["destino_direccion"] == "Av. Santa Fe 9999"
+    assert r.json()["datos_traslado"]["destino_direccion"] == "Dirección Demo 789"
     assert r.json()["datos_traslado"]["prestador"] == "Swiss Medical"
 
 

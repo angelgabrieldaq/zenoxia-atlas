@@ -1,4 +1,4 @@
-# Atlas — Relevamiento Operativo (institución de referencia, CABA)
+# Atlas — Relevamiento Operativo
 
 **Estado:** Fuente primaria de dominio.
 **Fecha:** 12 jun 2026
